@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.turbo/
+.next/
+.output/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Coverage
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Bun
+bun.lockb
+
+# Database
+*.sql.bak
+
+# Docker
+docker-compose.override.yml
+
+# Process Compose
+.process-compose/
+
+# Temporary
+tmp/
+.tmp/
