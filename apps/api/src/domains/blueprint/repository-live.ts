@@ -137,6 +137,7 @@ export const BlueprintItemRepositoryLive = Layer.effect(
                 metadata: input.metadata ?? {},
               })
               .returning();
+            // biome-ignore lint/style/noNonNullAssertion: Drizzle .returning() always yields a row on insert
             return item!;
           },
           catch: (error) => error as Error,
@@ -236,6 +237,7 @@ export const BlueprintItemRepositoryLive = Layer.effect(
                 color: input.color,
               })
               .returning();
+            // biome-ignore lint/style/noNonNullAssertion: Drizzle .returning() always yields a row on insert
             return tag!;
           },
           catch: (error) => error as Error,
@@ -326,6 +328,7 @@ export const BlueprintItemRepositoryLive = Layer.effect(
                 body: input.content,
               })
               .returning();
+            // biome-ignore lint/style/noNonNullAssertion: Drizzle .returning() always yields a row on insert
             return comment!;
           },
           catch: (error) => error as Error,
@@ -371,6 +374,7 @@ export const BlueprintItemRepositoryLive = Layer.effect(
                 changes: input.changes,
               })
               .returning();
+            // biome-ignore lint/style/noNonNullAssertion: Drizzle .returning() always yields a row on insert
             return activity!;
           },
           catch: (error) => error as Error,
