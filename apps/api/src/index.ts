@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { blueprintRoutes } from './domains/blueprint/routes.js';
+import { authMiddleware } from './middleware/auth.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { healthRoutes } from './routes/health.js';
@@ -23,6 +25,10 @@ app.use(
 
 // Health routes (outside /api/v1, no auth required)
 app.route('/', healthRoutes);
+
+// Blueprint domain routes (auth required)
+app.use('/api/v1/blueprint/*', authMiddleware);
+app.route('/api/v1/blueprint', blueprintRoutes);
 
 const port = Number(process.env.API_PORT ?? 33001);
 const hostname = process.env.API_HOST ?? '127.0.0.1';

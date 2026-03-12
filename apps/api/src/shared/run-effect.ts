@@ -27,10 +27,16 @@ export const runEffect = async <A, E>(
 
       switch (tag) {
         case 'NotFoundError':
+        case 'ItemNotFoundError':
+        case 'TagNotFoundError':
+        case 'CommentNotFoundError':
+        case 'ParentItemNotFoundError':
           return c.json({ error: { code: 'NOT_FOUND', message, details: {} } }, 404);
         case 'ValidationError':
+        case 'InvalidStatusTransitionError':
           return c.json({ error: { code: 'VALIDATION_ERROR', message, details: {} } }, 422);
         case 'ConflictError':
+        case 'DuplicateTagError':
           return c.json({ error: { code: 'CONFLICT', message, details: {} } }, 409);
         case 'AuthenticationError':
           return c.json({ error: { code: 'AUTHENTICATION_ERROR', message, details: {} } }, 401);
