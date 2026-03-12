@@ -313,7 +313,53 @@ jobs:
     if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/')
     steps:
       - uses: actions/checkout@v4
-      - name: Post preview deployment placeholder
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Deploy preview
+        id: deploy
+        run: |
+          /opt/previews/scripts/preview-deploy.sh \
+            ${{ github.event.pull_request.number }} \
+            "${{ github.head_ref }}" \
+            ${{ github.event.pull_request.head.sha }} \
+            "${{ github.workspace }}"
+          PR_NUM=${{ github.event.pull_request.number }}
+          RESULT_FILE="/opt/previews/ctrlpane/pr-${PR_NUM}/deploy-result.txt"
+          if [ -f "$RESULT_FILE" ]; then
+            cat "$RESULT_FILE" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Post preview URL
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.PREVIEW_URL }}';
+            if (!url) return;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.data.find(c => c.body.includes('Preview deployment'));
+            const sha = '${{ github.event.pull_request.head.sha }}'.slice(0, 7);
+            const body = `### Preview deployment\n\n🟢 **Live at:** ${url}\n\nCommit: \`${sha}\``;
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+      - name: Handle no slots
+        if: failure()
         uses: actions/github-script@v7
         with:
           script: |
@@ -321,5 +367,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: '🚧 **Preview deployment coming soon** — infrastructure setup in progress.',
+              body: '⚠️ **No preview slots available.** All 3 preview environments are in use. Close another PR to free a slot.',
             });

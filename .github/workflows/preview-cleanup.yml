@@ -1,0 +1,15 @@
+name: Preview Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: self-hosted
+    steps:
+      - name: Cleanup preview environment
+        run: /opt/previews/scripts/preview-cleanup.sh ${{ github.event.pull_request.number }} || true
