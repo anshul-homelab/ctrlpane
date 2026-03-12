@@ -1,7 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { type BlueprintApiClient, createBlueprintMcpServer } from './server.js';
+import {
+  type BlueprintApiClient,
+  HttpBlueprintApiClient,
+  createBlueprintMcpServer,
+} from './server.js';
 
 // ---------------------------------------------------------------------------
 // Mock API client — returns predictable data for each method
@@ -523,6 +527,432 @@ describe('unit: MCP Blueprint Server', () => {
         await pair.client.close();
         await pair.mcpServer.close();
       }
+    });
+
+    it('returns isError=true when listing items fails', async () => {
+      const errorClient = createMockApiClient();
+      (errorClient.listItems as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Connection timeout'),
+      );
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_list_items',
+          arguments: {},
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Error listing items');
+        expect(text).toContain('Connection timeout');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('returns isError=true when updating item fails', async () => {
+      const errorClient = createMockApiClient();
+      (errorClient.updateItem as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Concurrent modification'),
+      );
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_update_item',
+          arguments: {
+            id: 'bpi_01JTEST000000000000000001',
+            fields: { title: 'New title' },
+          },
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Error updating item');
+        expect(text).toContain('Concurrent modification');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('returns isError=true when searching items fails', async () => {
+      const errorClient = createMockApiClient();
+      (errorClient.searchItems as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Search index unavailable'),
+      );
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_search_items',
+          arguments: { query: 'test' },
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Error searching items');
+        expect(text).toContain('Search index unavailable');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('returns isError=true when adding comment fails', async () => {
+      const errorClient = createMockApiClient();
+      (errorClient.addComment as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Item archived'),
+      );
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_add_comment',
+          arguments: {
+            item_id: 'bpi_01JTEST000000000000000001',
+            content: 'A comment',
+          },
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Error adding comment');
+        expect(text).toContain('Item archived');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('returns isError=true when changeStatus API call throws', async () => {
+      const errorClient = createMockApiClient();
+      // getItem succeeds (status=pending), changeStatus throws
+      (errorClient.changeStatus as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Network error'),
+      );
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_change_status',
+          arguments: {
+            id: 'bpi_01JTEST000000000000000001',
+            new_status: 'in_progress',
+          },
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Error changing status');
+        expect(text).toContain('Network error');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('returns isError=true when getItem throws during changeStatus', async () => {
+      const errorClient = createMockApiClient();
+      (errorClient.getItem as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Item fetch failed'),
+      );
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_change_status',
+          arguments: {
+            id: 'bpi_01JNOTFOUND0000000000000',
+            new_status: 'in_progress',
+          },
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Error changing status');
+        expect(text).toContain('Item fetch failed');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('handles non-Error thrown values via String(error) fallback', async () => {
+      const errorClient = createMockApiClient();
+      (errorClient.listItems as ReturnType<typeof vi.fn>).mockRejectedValue('raw string error');
+
+      const pair = await createClientServerPair(errorClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_list_items',
+          arguments: {},
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('raw string error');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // blueprint_change_status — conditional branches
+  // -----------------------------------------------------------------------
+
+  describe('blueprint_change_status edge cases', () => {
+    it('skips validation when currentStatus is missing from getItem response', async () => {
+      const edgeClient = createMockApiClient();
+      // getItem returns object without data.status
+      (edgeClient.getItem as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: { id: 'bpi_01JTEST000000000000000001' },
+      });
+
+      const pair = await createClientServerPair(edgeClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_change_status',
+          arguments: {
+            id: 'bpi_01JTEST000000000000000001',
+            new_status: 'done',
+          },
+        });
+
+        // Should succeed — no validation when status is missing
+        expect(result.isError).toBeFalsy();
+        expect(edgeClient.changeStatus).toHaveBeenCalledWith(
+          'bpi_01JTEST000000000000000001',
+          'done',
+        );
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+
+    it('rejects transition from unknown status', async () => {
+      const edgeClient = createMockApiClient();
+      (edgeClient.getItem as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: { id: 'bpi_01JTEST000000000000000001', status: 'archived' },
+      });
+
+      const pair = await createClientServerPair(edgeClient);
+
+      try {
+        const result = await pair.client.callTool({
+          name: 'blueprint_change_status',
+          arguments: {
+            id: 'bpi_01JTEST000000000000000001',
+            new_status: 'in_progress',
+          },
+        });
+
+        expect(result.isError).toBe(true);
+        const text = getResultText(result);
+        expect(text).toContain('Unknown current status');
+        expect(text).toContain('archived');
+      } finally {
+        await pair.client.close();
+        await pair.mcpServer.close();
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // HttpBlueprintApiClient
+  // -----------------------------------------------------------------------
+
+  describe('HttpBlueprintApiClient', () => {
+    const originalFetch = globalThis.fetch;
+
+    afterAll(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('listItems builds query string from params, skipping undefined', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: [] }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.listItems({ status: 'pending', priority: undefined as unknown as string });
+
+      const calledUrl = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+      expect(calledUrl).toBe('http://api.test/api/v1/blueprint/items?status=pending');
+    });
+
+    it('listItems sends empty path when no params provided', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: [] }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.listItems({});
+
+      const calledUrl = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+      expect(calledUrl).toBe('http://api.test/api/v1/blueprint/items');
+    });
+
+    it('getItem sends GET to /items/:id with auth headers', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { id: 'bpi_01' } }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.getItem('bpi_01');
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://api.test/api/v1/blueprint/items/bpi_01',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'X-API-Key': 'key-123',
+            'Content-Type': 'application/json',
+          }),
+        }),
+      );
+    });
+
+    it('createItem sends POST with JSON body', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { id: 'bpi_02' } }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.createItem({ title: 'New' });
+
+      const [, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({ title: 'New' });
+    });
+
+    it('updateItem sends PATCH with JSON body', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { id: 'bpi_01' } }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.updateItem('bpi_01', { title: 'Changed' });
+
+      const [url, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(url).toBe('http://api.test/api/v1/blueprint/items/bpi_01');
+      expect(init.method).toBe('PATCH');
+      expect(JSON.parse(init.body)).toEqual({ title: 'Changed' });
+    });
+
+    it('changeStatus sends PATCH with status body', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { status: 'in_progress' } }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.changeStatus('bpi_01', 'in_progress');
+
+      const [, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(init.method).toBe('PATCH');
+      expect(JSON.parse(init.body)).toEqual({ status: 'in_progress' });
+    });
+
+    it('searchItems maps query param to search and removes query key', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: [] }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.searchItems({ query: 'fix bug', status: 'pending' });
+
+      const calledUrl = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as string;
+      const params = new URLSearchParams(calledUrl.split('?')[1]);
+      expect(params.get('search')).toBe('fix bug');
+      expect(params.has('query')).toBe(false);
+      expect(params.get('status')).toBe('pending');
+    });
+
+    it('addComment sends POST to /items/:id/comments', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: { id: 'bpc_01' } }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.addComment('bpi_01', 'Nice work');
+
+      const [url, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(url).toBe('http://api.test/api/v1/blueprint/items/bpi_01/comments');
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({ content: 'Nice work' });
+    });
+
+    it('listTags sends GET to /tags', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: [] }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.listTags();
+
+      const calledUrl = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+      expect(calledUrl).toBe('http://api.test/api/v1/blueprint/tags');
+    });
+
+    it('assignTag sends POST to /items/:id/tags', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ data: {} }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await httpClient.assignTag('bpi_01', 'bpt_01');
+
+      const [url, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(url).toBe('http://api.test/api/v1/blueprint/items/bpi_01/tags');
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({ tag_id: 'bpt_01' });
+    });
+
+    it('throws with error.message from body when response is not ok', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: () => Promise.resolve({ error: { message: 'Item does not exist' } }),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await expect(httpClient.getItem('bpi_missing')).rejects.toThrow('Item does not exist');
+    });
+
+    it('throws with HTTP status fallback when body has no error.message', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        json: () => Promise.resolve({}),
+      }) as unknown as typeof fetch;
+
+      const httpClient = new HttpBlueprintApiClient('http://api.test', 'key-123');
+      await expect(httpClient.getItem('bpi_01')).rejects.toThrow('HTTP 500: Internal Server Error');
     });
   });
 });
