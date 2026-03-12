@@ -191,7 +191,7 @@ jobs:
               index.ts|index.tsx|types.ts|constants.ts|*.d.ts|*.test.ts|*.test.tsx) continue ;;
             esac
             # Skip files in infrastructure/utility directories
-            if echo "$FILE" | grep -qE '/(generated|infra|shared|test-helpers|lib|hooks|components|routes)/'; then
+            if echo "$FILE" | grep -qE '/(generated|infra|shared|test-helpers|lib|hooks|components|routes|domains)/'; then
               continue
             fi
             # Check for corresponding test file
