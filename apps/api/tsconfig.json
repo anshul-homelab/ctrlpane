@@ -13,11 +13,12 @@
     "types": ["@types/bun"],
     "paths": {
       "@ctrlpane/shared": ["../../packages/shared/src"],
-      "@ctrlpane/shared/*": ["../../packages/shared/src/*"]
+      "@ctrlpane/shared/*": ["../../packages/shared/src/*"],
+      "@ctrlpane/db": ["../../packages/db/src"],
+      "@ctrlpane/db/*": ["../../packages/db/src/*"]
     },
     "baseUrl": ".",
-    "outDir": "dist",
-    "rootDir": "src"
+    "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
