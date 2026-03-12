@@ -45,7 +45,7 @@ Each preview slot has a contiguous port block `{base}000`-`{base}005`, avoiding 
 
 | Slot | Web | API | Postgres | Redis | NATS | Centrifugo |
 |------|-----|-----|----------|-------|------|------------|
-| Production | 33000 | 33001 | 35432 | 36379 | 34222 | 38000 |
+| Production | 33000 | 33001 | 35432 | 36379 | 34222 (client) / 38222 (mgmt) | 38000 |
 | Preview 1 | 34000 | 34001 | 34002 | 34003 | 34004 | 34005 |
 | Preview 2 | 35000 | 35001 | 35002 | 35003 | 35004 | 35005 |
 | Preview 3 | 36000 | 36001 | 36002 | 36003 | 36004 | 36005 |
@@ -54,6 +54,7 @@ Each preview slot has a contiguous port block `{base}000`-`{base}005`, avoiding 
 
 - Lock files at `/opt/previews/slots/{1,2,3}.lock`
 - Lock file contains: `PR_NUMBER=123\nBRANCH=feat/my-feature\nSHA=abc123\nCREATED_AT=2026-03-13T10:00:00Z`
+- **Atomic slot allocation:** use `flock /opt/previews/slots/{N}.lock` to prevent race conditions when concurrent CI jobs try to allocate slots. The deploy script acquires an exclusive lock before writing the slot metadata. If the lock is already held, skip to the next slot.
 - Allocation: first unlocked slot. If all 3 taken, post "no slots available" comment on PR.
 - Stale slot protection: slots older than 48h auto-reaped by cron.
 
@@ -72,7 +73,11 @@ Each preview slot has a contiguous port block `{base}000`-`{base}005`, avoiding 
 ├── ctrlpane/
 │   ├── pr-123/
 │   │   ├── api/        # Built API artifacts
-│   │   └── web/        # Built Web artifacts
+│   │   ├── web/        # Built Web artifacts
+│   │   ├── api.pid     # PID of running API process
+│   │   ├── web.pid     # PID of running Web process
+│   │   ├── api.log     # API stdout/stderr log
+│   │   └── web.log     # Web stdout/stderr log
 │   └── pr-456/
 └── scripts/
     ├── preview-deploy.sh
@@ -105,6 +110,8 @@ ingress:
   - service: http_status:404
 ```
 
+**Note:** Tunnel routes for preview slots are static — they always exist in the config. When no preview is running on a given slot, requests to that hostname will return a 502 Bad Gateway. This is expected behavior and not an error condition.
+
 DNS records (all CNAME -> `<tunnel-id>.cfargotunnel.com`, proxied):
 
 - `ctrlpane.dev`
@@ -117,27 +124,31 @@ DNS records (all CNAME -> `<tunnel-id>.cfargotunnel.com`, proxied):
 
 ### preview-deploy.sh
 
-**Args:** `<pr_number> <branch> <sha> <repo_clone_url>`
+**Args:** `<pr_number> <branch> <sha> <workspace_path>`
+
+The script receives the runner workspace path (already checked out by `actions/checkout` in the CI job) instead of cloning the repo itself. This avoids redundant clones and ensures the workspace matches the CI checkout.
+
+**stdout/stderr contract:** All build output and log messages go to **stderr**. The script writes its result to a file at `/opt/previews/ctrlpane/pr-{PR}/deploy-result.txt` (e.g., `PREVIEW_URL=https://preview-{N}.ctrlpane.dev`). The CI step reads this file rather than capturing stdout.
 
 **Flow:**
 
 1. Check for existing slot for this PR (re-deploy if found)
-2. If no existing slot, allocate first free slot
-3. If no free slots, output `NO_SLOT` and exit 1
-4. Write lock file
-5. `docker compose -f /opt/previews/docker/preview-{N}.yml up -d`
-6. Wait for Postgres healthy (max 30s)
-7. Clone/fetch repo to `/opt/previews/ctrlpane/pr-{PR}/src`
-8. `git checkout <sha>`
-9. `bun install --frozen-lockfile`
+2. If re-deploying: stop old API and Web processes (read PIDs from `api.pid` / `web.pid`, `kill` them, remove PID files)
+3. If no existing slot, allocate first free slot using `flock`
+4. If no free slots, write `NO_SLOT` to result file and exit 1
+5. Write lock file metadata
+6. `docker compose -f /opt/previews/docker/preview-{N}.yml up -d`
+7. Wait for Postgres healthy (max 30s)
+8. Copy source from `<workspace_path>` to `/opt/previews/ctrlpane/pr-{PR}/src`
+9. `cd /opt/previews/ctrlpane/pr-{PR}/src && bun install --frozen-lockfile`
 10. Set env vars (`DATABASE_URL`, `REDIS_URL`, etc. pointing to preview ports)
 11. `bun run --cwd apps/api db:migrate`
 12. `bun run build`
 13. Copy build artifacts to `/opt/previews/ctrlpane/pr-{PR}/{api,web}/`
-14. Start API: `nohup bun run /opt/previews/ctrlpane/pr-{PR}/api/index.js &`
-15. Start Web: serve built static files via simple HTTP server or Vite preview with proxy config
+14. Start API: `nohup bun run /opt/previews/ctrlpane/pr-{PR}/api/index.js > /opt/previews/ctrlpane/pr-{PR}/api.log 2>&1 &` — write PID to `/opt/previews/ctrlpane/pr-{PR}/api.pid`
+15. Start Web: serve built static files via `serve.js` (a small Node/Bun script that serves the Web build on `WEB_PORT` and proxies `/api/*` requests to `localhost:{API_PORT}`). See "Vite Proxy Configuration" section below. Write PID to `/opt/previews/ctrlpane/pr-{PR}/web.pid`. Logs go to `web.log`.
 16. Health check: `curl -sf http://localhost:{api_port}/health/live`
-17. Output `PREVIEW_URL=https://preview-{N}.ctrlpane.dev`
+17. Write `PREVIEW_URL=https://preview-{N}.ctrlpane.dev` to `/opt/previews/ctrlpane/pr-{PR}/deploy-result.txt`
 
 ### preview-cleanup.sh
 
@@ -146,9 +157,9 @@ DNS records (all CNAME -> `<tunnel-id>.cfargotunnel.com`, proxied):
 **Flow:**
 
 1. Find slot for PR number (scan lock files)
-2. Kill API and Web processes for this PR
+2. Read PIDs from `/opt/previews/ctrlpane/pr-{PR}/api.pid` and `web.pid`, kill processes (ignore errors if already stopped)
 3. `docker compose -f /opt/previews/docker/preview-{N}.yml down -v`
-4. Remove `/opt/previews/ctrlpane/pr-{PR}/`
+4. Remove `/opt/previews/ctrlpane/pr-{PR}/` (artifacts, PID files, logs, result file — all cleaned)
 5. Remove lock file
 6. Output cleanup confirmation
 
@@ -175,12 +186,19 @@ preview-deploy:
     - name: Deploy preview
       id: deploy
       run: |
-        RESULT=$(/opt/previews/scripts/preview-deploy.sh \
+        # Use pull_request.head.sha — github.sha is the merge commit SHA
+        # for PR events, which won't exist in a fresh clone.
+        /opt/previews/scripts/preview-deploy.sh \
           ${{ github.event.pull_request.number }} \
           ${{ github.head_ref }} \
-          ${{ github.sha }} \
-          ${{ github.server_url }}/${{ github.repository }}.git)
-        echo "result=$RESULT" >> $GITHUB_OUTPUT
+          ${{ github.event.pull_request.head.sha }} \
+          ${{ github.workspace }}
+        # Read result from the deploy-result file (not stdout)
+        PR_NUM=${{ github.event.pull_request.number }}
+        RESULT_FILE="/opt/previews/ctrlpane/pr-${PR_NUM}/deploy-result.txt"
+        if [ -f "$RESULT_FILE" ]; then
+          echo "result=$(cat $RESULT_FILE)" >> $GITHUB_OUTPUT
+        fi
     - name: Post preview URL
       if: success()
       uses: actions/github-script@v7
@@ -198,9 +216,10 @@ preview-deploy:
             const botComment = comments.data.find(c =>
               c.body.includes('Preview deployment')
             );
+            const sha = '${{ github.event.pull_request.head.sha }}'.slice(0, 7);
             const body = `### Preview deployment\n\n` +
               `Live at: ${urlMatch[1]}\n\n` +
-              `Commit: \`${context.sha.slice(0,7)}\``;
+              `Commit: \`${sha}\``;
             if (botComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -317,6 +336,22 @@ API_HOST=127.0.0.1
 WEB_PORT=34000
 VITE_API_URL=/api  # Relative path — Vite proxy handles routing
 ```
+
+## Vite Proxy Configuration
+
+The preview Web build uses `VITE_API_URL=/api` so the frontend makes relative API requests. Since the built static files are served by a simple HTTP server (not Vite dev server), a small `serve.js` script handles both static file serving and API proxying:
+
+```js
+// /opt/previews/ctrlpane/pr-{PR}/web/serve.js
+// Serves static build files on WEB_PORT
+// Proxies /api/* requests to localhost:{API_PORT}
+```
+
+Key points:
+- `VITE_API_URL=/api` is baked into the build at compile time (Vite env var)
+- `serve.js` listens on `WEB_PORT` (e.g., 34000) and proxies any request matching `/api/*` to `http://localhost:{API_PORT}` (e.g., 34001)
+- All other requests serve static files from the Web build output directory
+- This eliminates the need for separate API subdomains per preview slot
 
 ## Security Considerations
 
