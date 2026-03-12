@@ -8,13 +8,14 @@ import { defaultDbConfig } from '../client/db-client.js';
  * Uses a migrations tracking table to avoid re-running migrations.
  */
 async function migrate() {
+  const config = defaultDbConfig();
   const sql = postgres({
-    host: defaultDbConfig.host,
-    port: defaultDbConfig.port,
-    database: defaultDbConfig.database,
-    username: defaultDbConfig.username,
-    password: defaultDbConfig.password,
-    ssl: defaultDbConfig.ssl ? 'require' : undefined,
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    username: config.username,
+    password: config.password,
+    ssl: config.ssl ? 'require' : undefined,
   });
 
   try {

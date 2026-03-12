@@ -11,13 +11,14 @@ import * as schema from '../schema/index.js';
  * Idempotent: uses fixed IDs so re-running overwrites cleanly.
  */
 async function seed() {
+  const config = defaultDbConfig();
   const connection = postgres({
-    host: defaultDbConfig.host,
-    port: defaultDbConfig.port,
-    database: defaultDbConfig.database,
-    username: defaultDbConfig.username,
-    password: defaultDbConfig.password,
-    ssl: defaultDbConfig.ssl ? 'require' : undefined,
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    username: config.username,
+    password: config.password,
+    ssl: config.ssl ? 'require' : undefined,
   });
 
   const db = drizzle(connection, { schema });

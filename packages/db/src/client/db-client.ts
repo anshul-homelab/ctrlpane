@@ -64,8 +64,10 @@ export interface DbConfig {
 
 /**
  * Default database configuration from environment variables.
+ * Reads env vars lazily at call time so that values set after module import
+ * (e.g. in test setup with testcontainers) are picked up correctly.
  */
-export const defaultDbConfig: DbConfig = {
+export const defaultDbConfig = (): DbConfig => ({
   host: process.env.DB_HOST ?? 'localhost',
   port: Number(process.env.DB_PORT ?? '35432'),
   database: process.env.DB_NAME ?? 'ctrlpane',
@@ -73,7 +75,7 @@ export const defaultDbConfig: DbConfig = {
   password: process.env.DB_PASSWORD ?? 'ctrlpane_dev',
   ssl: process.env.DB_SSL === 'true',
   maxConnections: Number(process.env.DB_MAX_CONNECTIONS ?? '10'),
-};
+});
 
 /**
  * Create a postgres.js connection from config.
@@ -126,7 +128,7 @@ export const makeDbClient = (db: DrizzleDb): DbClientShape => ({
  * Live implementation of DbClient that connects to a real Postgres instance.
  * Uses a single connection pool shared across all operations.
  */
-export const DbClientLive = (config: DbConfig = defaultDbConfig): Layer.Layer<DbClient> => {
+export const DbClientLive = (config: DbConfig = defaultDbConfig()): Layer.Layer<DbClient> => {
   const connection = createConnection(config);
   const db = createDrizzle(connection);
   return Layer.succeed(DbClient, DbClient.of(makeDbClient(db)));
