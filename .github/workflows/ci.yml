@@ -142,7 +142,7 @@ jobs:
       - name: Get changed source files
         id: changed
         run: |
-          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- '*.ts' '*.tsx' | grep -v '\.test\.' | grep -v '\.d\.ts' || true)
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/api/**/*.ts' 'apps/api/**/*.tsx' | grep -v '\.test\.' | grep -v '\.d\.ts' || true)
           if [ -n "$FILES" ]; then
             echo "has_files=true" >> $GITHUB_OUTPUT
           else
@@ -150,6 +150,7 @@ jobs:
           fi
       - name: Run coverage on changed files
         if: steps.changed.outputs.has_files == 'true'
+        working-directory: apps/api
         run: |
           bunx vitest run --coverage --coverage.reporter=json-summary --coverage.thresholds.lines=80 --changed ${{ github.event.pull_request.base.sha }}
       - name: Post coverage summary
@@ -160,7 +161,7 @@ jobs:
             const fs = require('fs');
             let summary = 'No coverage data generated.';
             try {
-              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+              const coverage = JSON.parse(fs.readFileSync('apps/api/coverage/coverage-summary.json', 'utf8'));
               const total = coverage.total;
               summary = `### Coverage Summary\n\n` +
                 `| Metric | Coverage |\n` +
