@@ -1,0 +1,9 @@
+{
+  "git.autorefresh": true,
+  "workbench.colorCustomizations": {
+    "titleBar.activeBackground": "#7cff90",
+    "titleBar.activeForeground": "#000000",
+    "titleBar.inactiveBackground": "#7cff90",
+    "titleBar.inactiveForeground": "#000000"
+  }
+}
