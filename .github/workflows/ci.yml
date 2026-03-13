@@ -379,3 +379,13 @@ jobs:
               issue_number: context.issue.number,
               body: '⚠️ **No preview slots available.** All 3 preview environments are in use. Close another PR to free a slot.',
             });
+
+  merge-gate:
+    name: merge-gate
+    if: github.event_name == 'pull_request'
+    needs: [lint, typecheck, test-unit, test-arch, test-integration, build]
+    runs-on: ubuntu-latest
+    environment: merge-gate
+    steps:
+      - name: Approved for merge
+        run: echo "Merge approved by reviewer"
