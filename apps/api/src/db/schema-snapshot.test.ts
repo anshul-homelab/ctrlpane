@@ -13,6 +13,7 @@ import {
   blueprintItems,
   blueprintTags,
   outboxEvents,
+  sessions,
   tenants,
 } from '@ctrlpane/db';
 import { getTableConfig } from 'drizzle-orm/pg-core';
@@ -651,10 +652,80 @@ describe('schema snapshot [unit]', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Cross-cutting: all 8 tables present
+  // sessions
+  // -----------------------------------------------------------------------
+  describe('sessions', () => {
+    it('has table name "sessions"', () => {
+      expect(getTableConfig(sessions).name).toBe('sessions');
+    });
+
+    it('has the expected columns', () => {
+      expect(getColumnNames(sessions)).toEqual([
+        'id',
+        'tenant_id',
+        'token_hash',
+        'user_agent',
+        'ip_address',
+        'expires_at',
+        'created_at',
+      ]);
+    });
+
+    it('has correct column types', () => {
+      expect(findColumn(sessions, 'id')).toMatchObject({
+        columnType: 'PgText',
+        notNull: true,
+        primary: true,
+      });
+      expect(findColumn(sessions, 'tenant_id')).toMatchObject({
+        columnType: 'PgText',
+        notNull: true,
+      });
+      expect(findColumn(sessions, 'token_hash')).toMatchObject({
+        columnType: 'PgText',
+        notNull: true,
+      });
+      expect(findColumn(sessions, 'user_agent')).toMatchObject({
+        columnType: 'PgText',
+        notNull: false,
+      });
+      expect(findColumn(sessions, 'ip_address')).toMatchObject({
+        columnType: 'PgText',
+        notNull: false,
+      });
+      expect(findColumn(sessions, 'expires_at')).toMatchObject({
+        columnType: 'PgTimestamp',
+        notNull: true,
+      });
+      expect(findColumn(sessions, 'created_at')).toMatchObject({
+        columnType: 'PgTimestamp',
+        notNull: true,
+        hasDefault: true,
+      });
+    });
+
+    it('has the expected indexes', () => {
+      const names = getIndexNames(sessions);
+      expect(names).toContain('idx_sessions_token_hash');
+      expect(names).toContain('idx_sessions_tenant');
+      expect(names).toContain('idx_sessions_expires');
+    });
+
+    it('has FK to tenants', () => {
+      expect(getForeignKeys(sessions)).toContainEqual({
+        localColumn: 'tenant_id',
+        foreignTable: 'tenants',
+        foreignColumn: 'id',
+        onDelete: 'no action',
+      });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Cross-cutting: all 9 tables present
   // -----------------------------------------------------------------------
   describe('schema completeness', () => {
-    it('exports all 8 expected tables', () => {
+    it('exports all 9 expected tables', () => {
       const tables = [
         tenants,
         apiKeys,
@@ -664,8 +735,9 @@ describe('schema snapshot [unit]', () => {
         blueprintComments,
         blueprintActivity,
         outboxEvents,
+        sessions,
       ];
-      expect(tables).toHaveLength(8);
+      expect(tables).toHaveLength(9);
       for (const table of tables) {
         expect(getTableConfig(table).name).toBeTruthy();
       }
@@ -680,6 +752,7 @@ describe('schema snapshot [unit]', () => {
         blueprintComments,
         blueprintActivity,
         outboxEvents,
+        sessions,
       ];
       for (const table of tenantScopedTables) {
         const fks = getForeignKeys(table);

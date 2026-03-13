@@ -366,6 +366,10 @@ export const BlueprintItemServiceLive = Layer.effect(
           if (!item) return yield* new ItemNotFoundError({ itemId });
           return yield* repo.listActivity(itemId);
         }),
+
+      // ── Dashboard ──────────────────────────────────────────
+
+      getDashboardStats: () => repo.getDashboardStats(tenant.tenantId),
     };
   }),
 );

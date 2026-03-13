@@ -19,6 +19,7 @@ import type {
   BlueprintCommentRow,
   BlueprintItemRow,
   BlueprintTagRow,
+  DashboardStats,
   ItemDetail,
   PaginatedItems,
 } from './repository.js';
@@ -72,6 +73,9 @@ export interface BlueprintItemServiceShape {
   readonly listActivity: (
     itemId: string,
   ) => Effect.Effect<BlueprintActivityRow[], ItemNotFoundError | Error>;
+
+  // Dashboard
+  readonly getDashboardStats: () => Effect.Effect<DashboardStats, Error>;
 }
 
 export class BlueprintItemService extends Context.Tag('BlueprintItemService')<

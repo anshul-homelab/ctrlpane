@@ -129,6 +129,7 @@ const defaultRepo: BlueprintItemRepositoryShape = {
   createComment: () => Effect.succeed(makeComment()),
   deleteComment: () => Effect.succeed(null),
   listActivity: () => Effect.succeed([]),
+  getDashboardStats: () => Effect.succeed({ counts: [], recent_activity: [], total_items: 0 }),
   createActivity: () => Effect.succeed(makeActivity()),
 };
 
@@ -764,6 +765,51 @@ describe('BlueprintItemServiceLive [unit]', () => {
       if (Exit.isFailure(exit)) {
         const error = exit.cause.pipe((c) => (c._tag === 'Fail' ? c.error : null));
         expect(error).toBeInstanceOf(ItemNotFoundError);
+      }
+    });
+  });
+
+  // ── Dashboard ──────────────────────────────────────────────────
+
+  describe('getDashboardStats', () => {
+    it('[unit] delegates to repo.getDashboardStats with tenant id', async () => {
+      const stats = {
+        counts: [
+          { status: 'pending', count: 5 },
+          { status: 'in_progress', count: 3 },
+          { status: 'done', count: 10 },
+        ],
+        recent_activity: [makeActivity()],
+        total_items: 18,
+      };
+      const getDashboardStatsFn = vi.fn(() => Effect.succeed(stats));
+
+      const exit = await runService((svc) => svc.getDashboardStats(), {
+        getDashboardStats: getDashboardStatsFn,
+      });
+
+      expect(Exit.isSuccess(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) expect(exit.value).toEqual(stats);
+      expect(getDashboardStatsFn).toHaveBeenCalledWith(TENANT_ID);
+    });
+
+    it('[unit] returns empty stats when no items exist', async () => {
+      const emptyStats = {
+        counts: [],
+        recent_activity: [],
+        total_items: 0,
+      };
+      const getDashboardStatsFn = vi.fn(() => Effect.succeed(emptyStats));
+
+      const exit = await runService((svc) => svc.getDashboardStats(), {
+        getDashboardStats: getDashboardStatsFn,
+      });
+
+      expect(Exit.isSuccess(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) {
+        expect(exit.value.counts).toEqual([]);
+        expect(exit.value.recent_activity).toEqual([]);
+        expect(exit.value.total_items).toBe(0);
       }
     });
   });

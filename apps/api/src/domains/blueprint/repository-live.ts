@@ -7,7 +7,7 @@ import {
   blueprintTags,
 } from '@ctrlpane/db';
 import { decodeCursor, encodeCursor } from '@ctrlpane/shared';
-import { and, asc, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 import { Effect, Layer } from 'effect';
 import { BlueprintItemRepository } from './repository.js';
 
@@ -347,6 +347,41 @@ export const BlueprintItemRepositoryLive = Layer.effect(
         }),
 
       // ── Activity ───────────────────────────────────────────
+
+      getDashboardStats: (tenantId) =>
+        Effect.tryPromise({
+          try: async () => {
+            const [counts, recentActivity, totalResult] = await Promise.all([
+              db
+                .select({
+                  status: blueprintItems.status,
+                  count: count(),
+                })
+                .from(blueprintItems)
+                .where(and(eq(blueprintItems.tenantId, tenantId), isNull(blueprintItems.deletedAt)))
+                .groupBy(blueprintItems.status),
+              db
+                .select()
+                .from(blueprintActivity)
+                .where(eq(blueprintActivity.tenantId, tenantId))
+                .orderBy(desc(blueprintActivity.createdAt))
+                .limit(10),
+              db
+                .select({ count: count() })
+                .from(blueprintItems)
+                .where(
+                  and(eq(blueprintItems.tenantId, tenantId), isNull(blueprintItems.deletedAt)),
+                ),
+            ]);
+
+            return {
+              counts: counts.map((r) => ({ status: r.status, count: Number(r.count) })),
+              recent_activity: recentActivity,
+              total_items: Number(totalResult[0]?.count ?? 0),
+            };
+          },
+          catch: (error) => error as Error,
+        }),
 
       listActivity: (itemId) =>
         Effect.tryPromise({

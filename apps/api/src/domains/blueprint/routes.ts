@@ -41,6 +41,23 @@ const withBlueprint = <A, E>(
 
 export const blueprintRoutes = new Hono<AppEnv>()
 
+  // ── Dashboard ────────────────────────────────────────────────
+
+  // GET /dashboard/stats — Dashboard summary stats
+  .get('/dashboard/stats', (c) =>
+    runEffect(
+      c,
+      withBlueprint(
+        c,
+        Effect.gen(function* () {
+          const svc = yield* BlueprintItemService;
+          const stats = yield* svc.getDashboardStats();
+          return { data: stats };
+        }),
+      ),
+    ),
+  )
+
   // ── Items ──────────────────────────────────────────────────
 
   // GET /items — List items with cursor pagination and filters

@@ -16,6 +16,12 @@ import { Context, type Effect } from 'effect';
 // Re-export for convenience
 export type { BlueprintItemRow, BlueprintTagRow, BlueprintCommentRow, BlueprintActivityRow };
 
+export interface DashboardStats {
+  readonly counts: Array<{ status: string; count: number }>;
+  readonly recent_activity: BlueprintActivityRow[];
+  readonly total_items: number;
+}
+
 export interface ItemDetail extends BlueprintItemRow {
   readonly subItems: BlueprintItemRow[];
   readonly tags: Array<{ id: string; name: string; color: string | null }>;
@@ -89,6 +95,7 @@ export interface BlueprintItemRepositoryShape {
 
   // Activity
   readonly listActivity: (itemId: string) => Effect.Effect<BlueprintActivityRow[], Error>;
+  readonly getDashboardStats: (tenantId: string) => Effect.Effect<DashboardStats, Error>;
   readonly createActivity: (input: {
     id: string;
     tenantId: string;
