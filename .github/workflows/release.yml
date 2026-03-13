@@ -94,7 +94,7 @@ jobs:
           echo "prev_api=${PREV_API}" >> $GITHUB_OUTPUT
           mkdir -p /opt/ctrlpane/api/releases/v${API_VERSION}
           cp -r apps/api/dist/* /opt/ctrlpane/api/releases/v${API_VERSION}/
-          ln -sfn releases/v${API_VERSION} /opt/ctrlpane/api/current
+          ln -sfn /opt/ctrlpane/api/releases/v${API_VERSION} /opt/ctrlpane/api/current
           sudo systemctl restart ctrlpane-api
 
       - name: Health check API
@@ -135,7 +135,7 @@ jobs:
           echo "prev_web=${PREV_WEB}" >> $GITHUB_OUTPUT
           mkdir -p /opt/ctrlpane/web/releases/v${WEB_VERSION}
           cp -r apps/web/dist/* /opt/ctrlpane/web/releases/v${WEB_VERSION}/
-          ln -sfn releases/v${WEB_VERSION} /opt/ctrlpane/web/current
+          ln -sfn /opt/ctrlpane/web/releases/v${WEB_VERSION} /opt/ctrlpane/web/current
           sudo systemctl restart ctrlpane-web
 
       - name: Health check Web
