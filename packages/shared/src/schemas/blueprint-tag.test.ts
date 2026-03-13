@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { createBlueprintTagSchema } from './blueprint-tag.js';
 
 describe('createBlueprintTagSchema [unit]', () => {

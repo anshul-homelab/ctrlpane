@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import { createId } from './id.js';
 
 describe('createId [unit]', () => {
