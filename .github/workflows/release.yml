@@ -16,9 +16,18 @@ jobs:
       api_version: ${{ steps.versions.outputs.api }}
       web_version: ${{ steps.versions.outputs.web }}
     steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          token: ${{ steps.bot-token.outputs.token }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
 
@@ -31,7 +40,7 @@ jobs:
           createGithubReleases: false
           commitMode: git-cli
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.bot-token.outputs.token }}
 
       - name: Check if deploy needed
         id: check
