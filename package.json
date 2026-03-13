@@ -15,6 +15,10 @@
     "test:unit": "turbo run test:unit",
     "test:integration": "turbo run test:integration",
     "test:arch": "vitest run --config vitest.arch.config.ts",
+    "test:smoke": "bash scripts/smoke-preflight.sh && vitest run --config vitest.smoke.config.ts && playwright test --config tests/smoke/web/playwright.config.ts",
+    "test:smoke:api": "vitest run --config vitest.smoke.config.ts",
+    "test:smoke:web": "playwright test --config tests/smoke/web/playwright.config.ts",
+    "test:coverage": "cd apps/api && bunx vitest run --coverage && cd ../../apps/web && bunx vitest run --coverage && cd ../../packages/shared && bunx vitest run --coverage",
     "changeset": "changeset",
     "version": "changeset version"
   },
@@ -25,6 +29,7 @@
     "@commitlint/config-conventional": "^19.0.0",
     "@secretlint/secretlint-rule-preset-recommend": "^11.3.1",
     "@vitest/coverage-v8": "4.0.18",
+    "@playwright/test": "^1.58.2",
     "lefthook": "^1.6.0",
     "secretlint": "^11.3.1",
     "ts-morph": "^27.0.2",

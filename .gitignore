@@ -6,6 +6,7 @@ dist/
 .turbo/
 .next/
 .output/
+.vite/
 
 # Environment
 .env
@@ -25,6 +26,9 @@ Thumbs.db
 
 # Test
 coverage/
+test-results/
+playwright-report/
+blob-report/
 
 # Drizzle
 drizzle/meta/

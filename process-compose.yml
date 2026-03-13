@@ -44,13 +44,7 @@ processes:
     depends_on:
       api:
         condition: process_healthy
-    readiness_probe:
-      http_get:
-        host: 127.0.0.1
-        port: ${WEB_PORT:-33000}
-        path: /
-      initial_delay_seconds: 3
-      period_seconds: 5
+    ready_log_line: "Local:.*http"
     availability:
       restart: on_failure
       max_restarts: 3

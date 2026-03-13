@@ -11,6 +11,18 @@ pre-commit:
       run: bun run test:unit
     arch:
       run: bun run test:arch
+    coverage-api:
+      glob: "apps/api/src/**/*.ts"
+      exclude: "**/*.test.ts"
+      run: cd apps/api && bunx vitest run --coverage
+    coverage-web:
+      glob: "apps/web/src/**/*.{ts,tsx}"
+      exclude: "**/*.test.{ts,tsx}"
+      run: cd apps/web && bunx vitest run --coverage
+    coverage-shared:
+      glob: "packages/shared/src/**/*.ts"
+      exclude: "**/*.test.ts"
+      run: cd packages/shared && bunx vitest run --coverage
     secretlint:
       glob: "*.{ts,tsx,js,json,yml,yaml,sh,env}"
       exclude: "**/test-helpers/**"
