@@ -58,19 +58,15 @@ LOCK
   return 1
 }
 
-kill_existing_processes() {
-  local dir="$1"
-  for pidfile in "$dir/api.pid" "$dir/web.pid"; do
-    if [ -f "$pidfile" ]; then
-      local pid
-      pid=$(cat "$pidfile")
-      if kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null || true
-        sleep 1
-        kill -9 "$pid" 2>/dev/null || true
-      fi
-      rm -f "$pidfile"
+stop_existing_services() {
+  local slot="$1"
+  for svc in "preview-${slot}-api" "preview-${slot}-web"; do
+    if systemctl --user is-active "$svc.service" >/dev/null 2>&1; then
+      log "Stopping $svc..."
+      systemctl --user stop "$svc.service" 2>/dev/null || true
     fi
+    # Also reset failed state so systemd-run can reuse the unit name
+    systemctl --user reset-failed "$svc.service" 2>/dev/null || true
   done
 }
 
@@ -78,7 +74,7 @@ kill_existing_processes() {
 SLOT=""
 if SLOT=$(find_existing_slot); then
   log "Found existing slot $SLOT for PR #$PR_NUMBER — re-deploying"
-  kill_existing_processes "$PR_DIR"
+  stop_existing_services "$SLOT"
   # Update lock file with new SHA
   cat > "$SLOTS_DIR/$SLOT.lock" << LOCK
 PR_NUMBER=$PR_NUMBER
@@ -129,7 +125,7 @@ log "Installing dependencies..."
 cd "$PR_DIR/src"
 bun install --frozen-lockfile 2>&1 >&2
 
-# Step 6: Set environment variables
+# Step 6: Set environment variables and write .env file
 PG_USER="ctrlpane_app"
 PG_PASS="preview_dev"
 PG_DB="ctrlpane_preview"
@@ -147,6 +143,24 @@ export API_PORT="$API_PORT"
 export API_HOST="127.0.0.1"
 export WEB_PORT="$WEB_PORT"
 export VITE_API_URL="/api"
+
+# Persist env vars for systemd-run (survives runner cleanup)
+cat > "$PR_DIR/.env" << ENVFILE
+NODE_ENV=preview
+DB_HOST=localhost
+DB_PORT=$PG_PORT
+DB_NAME=$PG_DB
+DB_USER=$PG_USER
+DB_PASSWORD=$PG_PASS
+DATABASE_URL=postgres://${PG_USER}:${PG_PASS}@localhost:${PG_PORT}/${PG_DB}
+REDIS_URL=redis://:preview_dev@localhost:${REDIS_PORT}
+NATS_URL=nats://localhost:${NATS_PORT}
+CENTRIFUGO_URL=http://localhost:${CENTRIFUGO_PORT}
+API_PORT=$API_PORT
+API_HOST=127.0.0.1
+WEB_PORT=$WEB_PORT
+VITE_API_URL=/api
+ENVFILE
 
 # Step 7: Run migrations
 log "Running database migrations..."
@@ -218,18 +232,32 @@ server.listen(PORT, "127.0.0.1", () => {
 });
 SERVE
 
-# Step 11: Start API (setsid to survive runner job cleanup)
+# Step 11: Start API via systemd-run (survives GH Actions runner cleanup)
 log "Starting API on port $API_PORT..."
 cd "$PR_DIR"
-setsid bun run api/index.js > "$PR_DIR/api.log" 2>&1 &
-echo $! > "$PR_DIR/api.pid"
-disown
+systemd-run --user \
+  --unit="preview-${SLOT}-api" \
+  --description="CtrlPane Preview ${SLOT} API" \
+  --working-directory="$PR_DIR" \
+  --property=Restart=on-failure \
+  --property=RestartSec=2 \
+  --property=StandardOutput=file:"$PR_DIR/api.log" \
+  --property=StandardError=file:"$PR_DIR/api.log" \
+  --property=EnvironmentFile="$PR_DIR/.env" \
+  -- bun run api/index.js
 
-# Step 12: Start Web (setsid to survive runner job cleanup)
+# Step 12: Start Web via systemd-run (survives GH Actions runner cleanup)
 log "Starting Web on port $WEB_PORT..."
-WEB_PORT=$WEB_PORT API_PORT=$API_PORT setsid bun run "$PR_DIR/serve.js" > "$PR_DIR/web.log" 2>&1 &
-echo $! > "$PR_DIR/web.pid"
-disown
+systemd-run --user \
+  --unit="preview-${SLOT}-web" \
+  --description="CtrlPane Preview ${SLOT} Web" \
+  --working-directory="$PR_DIR" \
+  --property=Restart=on-failure \
+  --property=RestartSec=2 \
+  --property=StandardOutput=file:"$PR_DIR/web.log" \
+  --property=StandardError=file:"$PR_DIR/web.log" \
+  --property=EnvironmentFile="$PR_DIR/.env" \
+  -- bun run "$PR_DIR/serve.js"
 
 # Step 13: Health check
 log "Running health check..."
