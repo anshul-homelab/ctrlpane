@@ -23,6 +23,7 @@ For the agent onboarding contract, start with [`AGENTS.md`](../AGENTS.md) at the
 | Build auth, sessions, or RBAC | [specs/auth.md](specs/auth.md) |
 | Build notifications or alerts | [specs/notifications.md](specs/notifications.md) |
 | Build external integrations (Jira, Slack, etc.) | [specs/integrations.md](specs/integrations.md) |
+| Understand the org-wide CI/CD convention | [guides/org-cicd-convention.md](guides/org-cicd-convention.md) |
 | Review single points of failure | [operations/spof-register.yaml](operations/spof-register.yaml) |
 | Set up your local dev environment | [guides/development-conventions.md](guides/development-conventions.md) |
 | Deploy or operate ctrlpane | [runbooks/deployment.md](runbooks/deployment.md) |
@@ -98,6 +99,7 @@ For the agent onboarding contract, start with [`AGENTS.md`](../AGENTS.md) at the
 | File | Purpose | Audience |
 |---|---|---|
 | [development-conventions.md](guides/development-conventions.md) | Biome config, pre-commit hooks, commit conventions, testing practices | Developers |
+| [org-cicd-convention.md](guides/org-cicd-convention.md) | Org-wide CI/CD convention for all anshul-homelab repos (tiers, rollout, reusable components) | Operators, architects |
 
 ### `runbooks/` -- Operational procedures
 
