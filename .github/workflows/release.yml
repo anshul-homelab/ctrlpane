@@ -6,15 +6,12 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  changesets:
+  release:
     runs-on: self-hosted
-    outputs:
-      is_release: ${{ steps.check.outputs.is_release }}
-      api_version: ${{ steps.versions.outputs.api }}
-      web_version: ${{ steps.versions.outputs.web }}
+    # Skip version-bump commits pushed by the bot (prevents infinite loop)
+    if: "!startsWith(github.event.head_commit.message, 'chore(deploy):')"
     steps:
       - name: Generate bot token
         id: bot-token
@@ -26,57 +23,51 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
           token: ${{ steps.bot-token.outputs.token }}
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
 
-      - name: Create Release PR or Publish
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          publish: echo "skip-publish"
-          version: bun run version
-          createGithubReleases: false
-          commitMode: git-cli
-        env:
-          GITHUB_TOKEN: ${{ steps.bot-token.outputs.token }}
-
-      - name: Check if deploy needed
+      - name: Check for changesets
         id: check
         run: |
-          MSG=$(git log -1 --pretty=%s)
-          if [[ "$MSG" == "Version Packages"* ]]; then
-            echo "is_release=true" >> $GITHUB_OUTPUT
+          if ls .changeset/*.md 2>/dev/null | grep -v README.md | grep -q .; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
           else
-            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "No changesets found — skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Extract versions
-        id: versions
-        if: steps.check.outputs.is_release == 'true'
+      # --- Version ---
+      - name: Version packages
+        if: steps.check.outputs.should_release == 'true'
+        id: version
         run: |
+          bun run version
+          git config user.name "anshul-homelab-bot[bot]"
+          git config user.email "3080529+anshul-homelab-bot[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(deploy): version packages"
           echo "api=$(node -p "require('./apps/api/package.json').version")" >> $GITHUB_OUTPUT
           echo "web=$(node -p "require('./apps/web/package.json').version")" >> $GITHUB_OUTPUT
 
-  deploy:
-    needs: changesets
-    if: needs.changesets.outputs.is_release == 'true'
-    runs-on: self-hosted
-    environment: production
-    env:
-      API_VERSION: ${{ needs.changesets.outputs.api_version }}
-      WEB_VERSION: ${{ needs.changesets.outputs.web_version }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-
+      # --- Build & Validate ---
       - name: Build
+        if: steps.check.outputs.should_release == 'true'
         run: bun run build
 
+      - name: Test
+        if: steps.check.outputs.should_release == 'true'
+        run: bunx turbo run lint typecheck test:unit --cache-dir=/opt/ctrlpane/turbo-cache --concurrency=10
+
+      - name: Architecture tests
+        if: steps.check.outputs.should_release == 'true'
+        run: bun run test:arch
+
+      # --- Database ---
       - name: Backup database
+        if: steps.check.outputs.should_release == 'true'
         run: |
+          API_VERSION="${{ steps.version.outputs.api }}"
           BACKUP_FILE="/opt/ctrlpane/backups/api@v${API_VERSION}-pre-deploy.sql.gz"
           echo "Backing up database to ${BACKUP_FILE}"
           pg_dump -h localhost -p 35432 -U ctrlpane_app ctrlpane | gzip > "${BACKUP_FILE}"
@@ -88,11 +79,15 @@ jobs:
           echo "Backup complete: ${BACKUP_SIZE} bytes"
 
       - name: Run migrations
+        if: steps.check.outputs.should_release == 'true'
         run: bun run --cwd apps/api db:migrate
 
+      # --- Deploy API ---
       - name: Deploy API
+        if: steps.check.outputs.should_release == 'true'
         id: deploy-api
         run: |
+          API_VERSION="${{ steps.version.outputs.api }}"
           PREV_API=$(readlink -f /opt/ctrlpane/api/current 2>/dev/null || echo "")
           echo "prev_api=${PREV_API}" >> $GITHUB_OUTPUT
           mkdir -p /opt/ctrlpane/api/releases/v${API_VERSION}
@@ -101,7 +96,7 @@ jobs:
           sudo systemctl restart ctrlpane-api
 
       - name: Health check API
-        id: health-api
+        if: steps.check.outputs.should_release == 'true'
         run: |
           for i in $(seq 1 10); do
             if curl -sf http://localhost:33001/health/ready > /dev/null 2>&1; then
@@ -128,9 +123,12 @@ jobs:
             echo "::error::No previous API release to rollback to"
           fi
 
+      # --- Deploy Web ---
       - name: Deploy Web
+        if: steps.check.outputs.should_release == 'true'
         id: deploy-web
         run: |
+          WEB_VERSION="${{ steps.version.outputs.web }}"
           PREV_WEB=$(readlink -f /opt/ctrlpane/web/current 2>/dev/null || echo "")
           echo "prev_web=${PREV_WEB}" >> $GITHUB_OUTPUT
           mkdir -p /opt/ctrlpane/web/releases/v${WEB_VERSION}
@@ -139,7 +137,7 @@ jobs:
           sudo systemctl restart ctrlpane-web
 
       - name: Health check Web
-        id: health-web
+        if: steps.check.outputs.should_release == 'true'
         run: |
           for i in $(seq 1 10); do
             if curl -sf http://localhost:33000/ > /dev/null 2>&1; then
@@ -166,8 +164,11 @@ jobs:
             echo "::error::No previous Web release to rollback to"
           fi
 
-      - name: Create Git tag
-        if: success()
+      # --- Finalize ---
+      - name: Push version and tag
+        if: success() && steps.check.outputs.should_release == 'true'
         run: |
+          API_VERSION="${{ steps.version.outputs.api }}"
+          git push origin main
           git tag "v${API_VERSION}" -m "Release v${API_VERSION}"
           git push origin "v${API_VERSION}"
