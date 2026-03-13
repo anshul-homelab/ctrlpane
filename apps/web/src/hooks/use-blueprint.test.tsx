@@ -327,3 +327,116 @@ describe('unit: use-blueprint — mutation hooks', () => {
     expect(api.delete).toHaveBeenCalledWith('/api-keys/k1');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Optimistic update — useUpdateItemStatus onMutate
+// ---------------------------------------------------------------------------
+
+describe('unit: use-blueprint — useUpdateItemStatus optimistic updates', () => {
+  const makeItem = (
+    overrides: Partial<import('./use-blueprint.js').BlueprintItemRow> = {},
+  ): import('./use-blueprint.js').BlueprintItemRow => ({
+    id: 'item-1',
+    tenant_id: 'tenant-1',
+    title: 'Test item',
+    description: null,
+    status: 'pending',
+    priority: 'medium',
+    parent_id: null,
+    assigned_to: null,
+    due_date: null,
+    metadata: {},
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  });
+
+  const makePaginatedResponse = (items: import('./use-blueprint.js').BlueprintItemRow[]) => ({
+    data: items,
+    pagination: {
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      limit: 25,
+    },
+  });
+
+  it('optimistically updates matching item status in cache', async () => {
+    const items = [
+      makeItem({ id: 'item-1', status: 'pending' }),
+      makeItem({ id: 'item-2', status: 'in_progress' }),
+    ];
+    const filters = {};
+    testQueryClient.setQueryData(blueprintKeys.items(filters), makePaginatedResponse(items));
+
+    // Keep the mutation pending so we can inspect the optimistic state
+    vi.mocked(api.patch).mockReturnValueOnce(new Promise(() => {}));
+
+    const { result } = renderHook(() => useUpdateItemStatus(), { wrapper: createWrapper() });
+    result.current.mutate({ id: 'item-1', status: 'done' });
+
+    // Wait for onMutate to execute (mutation moves to pending state)
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+
+    type CachedItems = { data: import('./use-blueprint.js').BlueprintItemRow[] };
+    const cached = testQueryClient.getQueryData<CachedItems>(blueprintKeys.items(filters));
+    const data = cached?.data;
+    expect(data).toBeDefined();
+    expect(data).toHaveLength(2);
+    // Matching item should have updated status
+    expect(data?.at(0)?.status).toBe('done');
+    // Non-matching item should be unchanged
+    expect(data?.at(1)?.status).toBe('in_progress');
+  });
+
+  it('leaves non-matching items unchanged during optimistic update', async () => {
+    const items = [
+      makeItem({ id: 'item-A', status: 'pending', title: 'Item A' }),
+      makeItem({ id: 'item-B', status: 'pending', title: 'Item B' }),
+      makeItem({ id: 'item-C', status: 'in_progress', title: 'Item C' }),
+    ];
+    const filters = {};
+    testQueryClient.setQueryData(blueprintKeys.items(filters), makePaginatedResponse(items));
+
+    vi.mocked(api.patch).mockReturnValueOnce(new Promise(() => {}));
+
+    const { result } = renderHook(() => useUpdateItemStatus(), { wrapper: createWrapper() });
+    result.current.mutate({ id: 'item-B', status: 'done' });
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+
+    type CachedItems = { data: import('./use-blueprint.js').BlueprintItemRow[] };
+    const cached = testQueryClient.getQueryData<CachedItems>(blueprintKeys.items(filters));
+    const data = cached?.data;
+    expect(data).toHaveLength(3);
+    expect(data?.at(0)?.id).toBe('item-A');
+    expect(data?.at(0)?.status).toBe('pending');
+    expect(data?.at(1)?.id).toBe('item-B');
+    expect(data?.at(1)?.status).toBe('done');
+    expect(data?.at(2)?.id).toBe('item-C');
+    expect(data?.at(2)?.status).toBe('in_progress');
+  });
+
+  it('handles undefined query data gracefully (old is undefined)', async () => {
+    // Register the items query key in the cache without resolving data.
+    // prefetchQuery starts a fetch that never resolves, leaving data as undefined.
+    // When setQueriesData iterates matching queries, `old` will be undefined.
+    testQueryClient.prefetchQuery({
+      queryKey: blueprintKeys.items({}),
+      queryFn: () => new Promise(() => {}), // never resolves
+    });
+    // Small delay to let prefetchQuery register the query entry
+    await new Promise((r) => setTimeout(r, 10));
+
+    vi.mocked(api.patch).mockReturnValueOnce(new Promise(() => {}));
+
+    const { result } = renderHook(() => useUpdateItemStatus(), { wrapper: createWrapper() });
+    result.current.mutate({ id: 'item-1', status: 'done' });
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+
+    // The query data should still be undefined — the `if (!old) return old` branch was hit
+    const cached = testQueryClient.getQueryData(blueprintKeys.items({}));
+    expect(cached).toBeUndefined();
+  });
+});
