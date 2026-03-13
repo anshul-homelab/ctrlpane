@@ -12,10 +12,10 @@ export default defineConfig({
       include: ['src/hooks/**/*.ts', 'src/lib/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
       thresholds: {
-        statements: 97,
+        statements: 100,
         branches: 100,
-        functions: 97,
-        lines: 98,
+        functions: 100,
+        lines: 100,
       },
     },
   },
