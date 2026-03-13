@@ -1,0 +1,15 @@
+# Infrastructure — always human review
+homelab/                    @anshulbisen
+.github/workflows/          @anshulbisen
+docker-compose*.yml         @anshulbisen
+
+# Database — always human review
+**/migrations/              @anshulbisen
+
+# Security — always human review
+**/auth/                    @anshulbisen
+.env.example                @anshulbisen
+
+# Agent behavior — always human review
+CLAUDE.md                   @anshulbisen
+AGENTS.md                   @anshulbisen

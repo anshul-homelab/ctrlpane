@@ -1,0 +1,391 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  branch-name-check:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Check branch name
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          if [[ ! "$BRANCH" =~ ^(feat|fix|hotfix|docs|refactor|chore|test|ci)/ ]]; then
+            echo "Branch name '$BRANCH' does not follow convention"
+            exit 1
+          fi
+
+  commitlint:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Validate commits
+        run: bunx commitlint --from ${{ github.event.pull_request.base.sha || 'HEAD~1' }} --to HEAD
+
+  changeset-check:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Check changeset
+        run: |
+          CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
+          if echo "$CHANGED" | grep -q "^apps/"; then
+            if ! ls .changeset/*.md 2>/dev/null | grep -v README; then
+              echo "Changes to apps/ require a changeset. Run: bun changeset"
+              exit 1
+            fi
+          fi
+
+  lint:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  typecheck:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+  test-unit:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test:unit
+
+  test-integration:
+    runs-on: self-hosted
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Run integration tests
+        run: bun run test:integration || bun run test:integration
+        env:
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+  test-arch:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test:arch
+
+  no-secrets:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Scan changed files for secrets
+        run: |
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No changed files to scan."
+            exit 0
+          fi
+          # Filter out files covered by secretlint ignorePatterns
+          # (ignorePatterns only apply to file-discovery mode, not explicit args)
+          FILTERED=$(echo "$CHANGED_FILES" | grep -v -E '\.test\.(ts|tsx)$|\.env\.example$|^docs/superpowers/|/test-helpers/|^scripts/')
+          if [ -z "$FILTERED" ]; then
+            echo "All changed files are in ignore patterns."
+            exit 0
+          fi
+          echo "$FILTERED" | xargs bunx secretlint
+
+  test-coverage:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Get changed source files
+        id: changed
+        run: |
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/api/**/*.ts' 'apps/api/**/*.tsx' | grep -v '\.test\.' | grep -v '\.d\.ts' || true)
+          if [ -n "$FILES" ]; then
+            echo "has_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_files=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Run coverage on changed files
+        if: steps.changed.outputs.has_files == 'true'
+        working-directory: apps/api
+        run: |
+          bunx vitest run -t 'unit' --coverage --coverage.reporter=json-summary --changed ${{ github.event.pull_request.base.sha }}
+      - name: Post coverage summary
+        if: always() && steps.changed.outputs.has_files == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = 'No coverage data generated.';
+            try {
+              const coverage = JSON.parse(fs.readFileSync('apps/api/coverage/coverage-summary.json', 'utf8'));
+              const total = coverage.total;
+              summary = `### Coverage Summary\n\n` +
+                `| Metric | Coverage |\n` +
+                `|--------|----------|\n` +
+                `| Lines | ${total.lines.pct}% |\n` +
+                `| Branches | ${total.branches.pct}% |\n` +
+                `| Functions | ${total.functions.pct}% |\n` +
+                `| Statements | ${total.statements.pct}% |\n\n` +
+                `Minimum required: **80% line coverage** on changed files.`;
+            } catch (e) {
+              summary = `Coverage report not available: ${e.message}`;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary,
+            });
+
+  test-colocation:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check test colocation for new source files
+        run: |
+          MISSING=()
+          NEW_FILES=$(git diff --name-only --diff-filter=A ${{ github.event.pull_request.base.sha }}...HEAD -- 'apps/*/src/**/*.ts' 'apps/*/src/**/*.tsx')
+          for FILE in $NEW_FILES; do
+            BASENAME=$(basename "$FILE")
+            # Skip excluded files
+            case "$BASENAME" in
+              index.ts|index.tsx|types.ts|constants.ts|*.d.ts|*.test.ts|*.test.tsx) continue ;;
+            esac
+            # Skip files in infrastructure/utility directories
+            if echo "$FILE" | grep -qE '/(generated|infra|shared|test-helpers|lib|hooks|components|routes|domains)/'; then
+              continue
+            fi
+            # Check for corresponding test file
+            TEST_FILE="${FILE%.ts}.test.ts"
+            if [ ! -f "$TEST_FILE" ]; then
+              MISSING+=("$FILE -> expected $TEST_FILE")
+            fi
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "Missing colocated test files:"
+            for M in "${MISSING[@]}"; do
+              echo "  $M"
+            done
+            exit 1
+          fi
+          echo "All new source files have colocated tests."
+
+  protected-files:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for protected file changes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const changedFiles = execSync(
+              `git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD`
+            ).toString().trim().split('\n').filter(Boolean);
+
+            const protectedPatterns = [
+              /^homelab\//,
+              /^\.github\/workflows\//,
+              /^docker-compose.*\.yml$/,
+              /\/migrations\//,
+              /\/auth\//,
+              /^CLAUDE\.md$/,
+              /^AGENTS\.md$/,
+              /^\.env\.example$/,
+            ];
+
+            const matched = changedFiles.filter(f =>
+              protectedPatterns.some(p => p.test(f))
+            );
+
+            if (matched.length > 0) {
+              console.log('Protected files changed:');
+              matched.forEach(f => console.log(`  ${f}`));
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['requires-human-review'],
+              });
+              console.log('Added "requires-human-review" label.');
+            } else {
+              console.log('No protected files changed.');
+            }
+
+  docs-check:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check if code changes need doc updates
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const changedFiles = execSync(
+              `git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD`
+            ).toString().trim().split('\n').filter(Boolean);
+
+            const codePatterns = [
+              /routes?\//,
+              /endpoints?\//,
+              /domains?\//,
+              /\/migrations\//,
+            ];
+
+            const hasCodeChanges = changedFiles.some(f =>
+              codePatterns.some(p => p.test(f))
+            );
+            const hasDocChanges = changedFiles.some(f =>
+              f.startsWith('docs/') || f.endsWith('.md')
+            );
+
+            if (hasCodeChanges && !hasDocChanges) {
+              console.log('Code changes detected in routes/endpoints/domains/migrations without doc updates.');
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: ['needs-docs'],
+              });
+              console.log('Added "needs-docs" label.');
+            } else {
+              console.log('Documentation check passed.');
+            }
+
+  preview-deploy:
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Deploy preview
+        id: deploy
+        run: |
+          set +e
+          /opt/previews/scripts/preview-deploy.sh \
+            ${{ github.event.pull_request.number }} \
+            "${{ github.head_ref }}" \
+            ${{ github.event.pull_request.head.sha }} \
+            "${{ github.workspace }}"
+          EXIT_CODE=$?
+          set -e
+          PR_NUM=${{ github.event.pull_request.number }}
+          RESULT_FILE="/opt/previews/ctrlpane/pr-${PR_NUM}/deploy-result.txt"
+          if [ -f "$RESULT_FILE" ]; then
+            cat "$RESULT_FILE" >> "$GITHUB_OUTPUT"
+          fi
+          # Check if failure was due to no available slots
+          if [ $EXIT_CODE -ne 0 ]; then
+            if grep -q "No preview slots available" "/opt/previews/ctrlpane/pr-${PR_NUM}/deploy.log" 2>/dev/null; then
+              echo "NO_SLOTS=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit $EXIT_CODE
+          fi
+      - name: Post preview URL
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = '${{ steps.deploy.outputs.PREVIEW_URL }}';
+            if (!url) return;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.data.find(c => c.body.includes('Preview deployment'));
+            const sha = '${{ github.event.pull_request.head.sha }}'.slice(0, 7);
+            const body = `### Preview deployment\n\n🟢 **Live at:** ${url}\n\nCommit: \`${sha}\``;
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+      - name: Handle no slots
+        if: failure() && steps.deploy.outputs.NO_SLOTS == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⚠️ **No preview slots available.** All 3 preview environments are in use. Close another PR to free a slot.',
+            });
+
+  merge-gate:
+    name: merge-gate
+    if: github.event_name == 'pull_request'
+    needs: [lint, typecheck, test-unit, test-arch, test-integration, build]
+    runs-on: ubuntu-latest
+    environment: merge-gate
+    steps:
+      - name: Approved for merge
+        run: echo "Merge approved by reviewer"

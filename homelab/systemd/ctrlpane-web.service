@@ -1,0 +1,23 @@
+[Unit]
+Description=ctrlpane Web server
+After=ctrlpane-api.service
+
+[Service]
+Type=simple
+User=anshul
+WorkingDirectory=/opt/ctrlpane/web/current
+ExecStart=/home/anshul/.bun/bin/bun run serve.js
+Restart=on-failure
+RestartSec=5s
+EnvironmentFile=/opt/ctrlpane/.env
+Environment=NODE_ENV=production
+Environment=WEB_PORT=33000
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ctrlpane
+
+[Install]
+WantedBy=multi-user.target

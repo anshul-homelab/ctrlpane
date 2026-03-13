@@ -20,7 +20,7 @@
     |                      v                             |
     |  +----------+   +--------+   +-----------+        |
     |  | Web App  |-->|  API   |-->| Centrifugo |        |
-    |  | (:3001)  |   |(:3000) |   | (:38000)   |        |
+    |  | (:33001) |   |(:33000)|   | (:38000)   |        |
     |  +----------+   +---+----+   +-----+------+        |
     ---- LOCAL NET ------- | ----------- | ---------------
     |                      v             v               |
@@ -54,6 +54,72 @@
 | **DoS** | API flood | Redis-backed rate limiting per tenant/user/endpoint |
 | **Elevation** | Self-granting higher role | `canGrantRole()` requires strictly higher privilege |
 | **Elevation** | RLS bypass via superuser | `FORCE ROW LEVEL SECURITY`; app uses non-superuser role |
+
+### Additional Threat Vectors
+
+#### 1. MCP Authentication
+
+MCP tool calls execute in-process with the API server — there is no network boundary between the MCP handler and the Hono application. Agent sessions authenticate via leased JWT tokens issued at session start.
+
+**Auth flow:**
+
+1. Agent authenticates via `POST /auth/agent-session` with a salted API key hash.
+2. Server issues a short-lived JWT (15 min) with scoped permissions (`agents.session.manage`, plus any project-level grants).
+3. JWT `sub` encodes `agent:{agent_id}`, `tid` encodes tenant. Standard `requireAuth` middleware validates the token on every MCP call.
+4. Refresh follows the same rotation + reuse-detection flow as user sessions (Section 2).
+
+**Session binding:** Each agent session is bound to a `session_id` + `tenant_id` pair. The JWT `sid` claim must match the active session row. Revoked or expired sessions reject all MCP calls immediately.
+
+**Permission boundaries:** Agent JWTs carry a `scope` array that is a strict subset of the creating user's permissions. Agents cannot escalate beyond their issuer's role. MCP tool handlers check `requirePermission()` like any other route — no implicit trust.
+
+#### 2. File Upload Security
+
+ctrlpane accepts file attachments on tasks and notes. Uploads are validated and stored without server-side execution.
+
+| Control | Implementation |
+|---------|---------------|
+| **Type validation** | Extension + MIME allowlist: `png, jpg, jpeg, gif, webp, pdf, txt, md, csv, doc, docx, xls, xlsx`. Magic-byte verification via `file-type` library. |
+| **Size limit** | 10 MB per file; 50 MB per request (enforced by Hono body parser). |
+| **Storage isolation** | Files stored under `/{tenant_id}/{upload_id}/{filename}`. Tenant ID is derived from the authenticated session, never from the request body. |
+| **No execution** | Files served with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`. No server-side processing beyond thumbnail generation (image types only). |
+| **Filename sanitization** | Original filenames stripped of path separators and null bytes; stored with a UUID prefix. |
+| **Virus scanning** | Deferred to Beta. When implemented: ClamAV scan before storage; quarantine on detection. |
+
+#### 3. Timing Attacks
+
+All secret comparisons use constant-time functions to prevent timing-based information leakage.
+
+| Comparison | Implementation |
+|-----------|---------------|
+| Password verification | Argon2id `verify()` — inherently constant-time |
+| HMAC validation | `crypto.timingSafeEqual()` for webhook signature and HMAC checks |
+| Token comparison | `crypto.timingSafeEqual()` for refresh token hash, API key hash, and recovery code comparison |
+| Early rejection prevention | Auth endpoints always perform the full hash comparison even for non-existent users (hash a dummy value) to prevent user-enumeration timing |
+
+Rate limiting on auth endpoints (10 req/min per user, Section 7) provides an additional layer against brute-force timing attacks.
+
+#### 4. JWT Algorithm Confusion
+
+JWT verification is hardcoded to prevent `alg: none` and RSA/HMAC confusion attacks.
+
+| Control | Implementation |
+|---------|---------------|
+| **Algorithm hardcoding** | Verification specifies `algorithms: ['RS256']` explicitly. No dynamic algorithm selection from the token header. |
+| **`alg: none` rejection** | Tokens with `alg: none` or empty `alg` are rejected before signature verification. The JWT library (`jose`) rejects these by default when `algorithms` is specified. |
+| **Key type enforcement** | Verification uses an RSA public key only. Passing an HMAC secret to an asymmetric verifier is structurally impossible — the key types are incompatible. |
+| **Header validation** | Tokens with `alg` not matching `RS256` are rejected with a `401` and audit-logged at `elevated` risk level. |
+
+#### 5. Dependency Confusion Attacks
+
+All internal packages use the `@ctrlpane` npm scope to prevent public registry shadowing.
+
+| Control | Implementation |
+|---------|---------------|
+| **Scoped packages** | Every internal package is published under `@ctrlpane/*` (e.g., `@ctrlpane/shared`, `@ctrlpane/domain-tasks`). The scope is registered on npm (reserved, not published). |
+| **Registry pinning** | `.npmrc` configures `@ctrlpane:registry=https://registry.npmjs.org/` with the scope explicitly pinned. Bun resolves `@ctrlpane/*` only from the configured registry. |
+| **Frozen lockfile in CI** | `bun install --frozen-lockfile` in all CI jobs. Any lockfile drift (new dependency resolution) fails the build. |
+| **Workspace protocol** | Internal dependencies use `workspace:*` protocol in `package.json`, which Bun resolves locally — never hitting the registry for workspace packages. |
+| **Pre-publish guard** | No `@ctrlpane/*` package has `"private": false`. All are `"private": true` until an explicit public release decision. |
 
 ---
 
@@ -254,7 +320,7 @@ Redis down -> approximate in-memory counters (fail-open for availability; RLS+au
 
 ### CORS
 
-Origins: `https://ctrlpane.com`, `http://localhost:3001`. Credentials: true. Methods: GET, POST, PUT, PATCH, DELETE.
+Origins: `https://ctrlpane.com`, `http://localhost:33001`. Credentials: true. Methods: GET, POST, PUT, PATCH, DELETE.
 
 ### Idempotency
 

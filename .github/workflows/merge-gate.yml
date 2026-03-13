@@ -1,0 +1,13 @@
+name: Merge Gate
+
+on:
+  workflow_call:
+
+jobs:
+  merge-gate:
+    name: merge-gate
+    runs-on: ubuntu-latest
+    environment: merge-gate
+    steps:
+      - name: Approved for merge
+        run: echo "Merge approved by reviewer"

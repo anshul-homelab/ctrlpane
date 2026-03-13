@@ -1,0 +1,57 @@
+version: "0.5"
+
+processes:
+  infra:
+    command: docker compose up
+    readiness_probe:
+      exec:
+        command: ./scripts/check-infra-healthy.sh
+      initial_delay_seconds: 10
+      period_seconds: 5
+      failure_threshold: 10
+      timeout_seconds: 5
+    shutdown:
+      command: docker compose down
+      timeout_seconds: 15
+
+  db-setup:
+    command: bun run --cwd packages/db migrate && bun run --cwd packages/db seed
+    depends_on:
+      infra:
+        condition: process_healthy
+    availability:
+      restart: "no"
+
+  api:
+    command: bun run --cwd apps/api dev
+    depends_on:
+      db-setup:
+        condition: process_completed_successfully
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: ${API_PORT:-33001}
+        path: /health/live
+      initial_delay_seconds: 3
+      period_seconds: 5
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
+
+  web:
+    command: bun run --cwd apps/web dev
+    depends_on:
+      api:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: ${WEB_PORT:-33000}
+        path: /
+      initial_delay_seconds: 3
+      period_seconds: 5
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2

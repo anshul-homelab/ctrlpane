@@ -1,0 +1,25 @@
+{
+  "name": "@ctrlpane/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "check": "biome check src/",
+    "check:fix": "biome check --write src/",
+    "test": "bun test",
+    "test:unit": "bun test"
+  },
+  "dependencies": {
+    "zod": "^3.24.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}

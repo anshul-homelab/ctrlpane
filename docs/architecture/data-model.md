@@ -78,6 +78,10 @@ Every entity type has a unique 3-4 character prefix followed by an underscore an
 | `obx_` | Outbox Event | infra |
 | `pev_` | Processed Event | infra |
 | `aud_` | Audit Log Entry | infra |
+| `bpi_` | Blueprint Item | blueprint |
+| `bpt_` | Blueprint Tag | blueprint |
+| `bpc_` | Blueprint Comment | blueprint |
+| `bpa_` | Blueprint Activity | blueprint |
 | `ffg_` | Feature Flag | infra |
 
 ### Rules for New Prefixes

@@ -13,8 +13,20 @@
 | [ADR-004](./ADR-004-pm-hierarchy.md) | PM Hierarchy | Accepted | 2026-03-12 |
 | [ADR-005](./ADR-005-agent-first-design.md) | Agent-First Design | Accepted | 2026-03-12 |
 | [ADR-006](./ADR-006-event-architecture.md) | Event Architecture | Accepted | 2026-03-12 |
-| [ADR-007](./ADR-007-resilience-and-deployment.md) | Resilience Patterns & Deployment | Proposed | 2026-03-12 |
+| [ADR-007](./ADR-007-resilience-and-deployment.md) | Resilience Patterns & Deployment | Accepted (Decisions 1-4); Decision 5 superseded by ADR-008 | 2026-03-12 |
 | [ADR-008](./ADR-008-cicd-deployment.md) | CI/CD & Two-Machine Deployment | Accepted | 2026-03-12 |
+| [ADR-009](./ADR-009-api-versioning.md) | API Versioning | Accepted | 2026-03-12 |
+| [ADR-010](./ADR-010-backward-compatibility.md) | Backward Compatibility | Accepted | 2026-03-12 |
+| [ADR-011](./ADR-011-pagination-and-filtering.md) | Pagination & Filtering | Accepted | 2026-03-12 |
+| [ADR-012](./ADR-012-event-schema-versioning.md) | Event Schema Versioning | Accepted | 2026-03-12 |
+| [ADR-013](./ADR-013-idempotency-keys.md) | Idempotency Keys | Accepted | 2026-03-12 |
+| [ADR-014](./ADR-014-csrf-ssrf-mitigation.md) | CSRF & SSRF Mitigation | Accepted | 2026-03-12 |
+| [ADR-015](./ADR-015-gdpr-erasure.md) | GDPR Erasure Cascade | Accepted | 2026-03-12 |
+| [ADR-016](./ADR-016-data-consistency-model.md) | Data Consistency Model | Accepted | 2026-03-12 |
+| [ADR-017](./ADR-017-spof-acceptance-register.md) | SPOF Acceptance Register | Accepted | 2026-03-12 |
+| [ADR-018](./ADR-018-opentelemetry-stack.md) | OpenTelemetry Stack | Accepted | 2026-03-12 |
+| [ADR-019](./ADR-019-agent-safety-controls.md) | Agent Safety Controls | Accepted | 2026-03-12 |
+| [ADR-020](./ADR-020-agent-session-retention.md) | Agent Session Data Retention | Accepted | 2026-03-12 |
 
 ## Template
 

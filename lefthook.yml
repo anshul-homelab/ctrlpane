@@ -1,0 +1,45 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      glob: "*.{js,ts,jsx,tsx,json,css}"
+      run: bunx biome check --write --staged {staged_files} && git add {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: bun run typecheck
+    test:
+      run: bun run test:unit
+    arch:
+      run: bun run test:arch
+    secretlint:
+      glob: "*.{ts,tsx,js,json,yml,yaml,sh,env}"
+      exclude: "**/test-helpers/**"
+      run: bunx secretlint {staged_files}
+
+commit-msg:
+  commands:
+    commitlint:
+      run: bunx commitlint --edit {1}
+
+pre-push:
+  commands:
+    branch-name:
+      run: |
+        BRANCH=$(git rev-parse --abbrev-ref HEAD)
+        if [[ "$BRANCH" == "main" ]]; then
+          echo "Direct push to main is blocked. Create a PR instead."
+          exit 1
+        fi
+        if [[ ! "$BRANCH" =~ ^(feat|fix|hotfix|docs|refactor|chore|test|ci)/ ]]; then
+          echo "Branch name '$BRANCH' doesn't follow convention: (feat|fix|hotfix|docs|refactor|chore|test|ci)/<scope>/<desc>"
+          exit 1
+        fi
+    changeset-check:
+      run: |
+        CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || true)
+        if echo "$CHANGED" | grep -q "^apps/"; then
+          if ! ls .changeset/*.md 2>/dev/null | grep -v README > /dev/null; then
+            echo "Changes to apps/ require a changeset. Run: bun changeset"
+            exit 1
+          fi
+        fi

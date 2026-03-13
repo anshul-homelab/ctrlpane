@@ -1,0 +1,70 @@
+name: ctrlpane-${COMPOSE_PROJECT_SUFFIX:-main}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-35432}:5432"
+    environment:
+      POSTGRES_DB: ctrlpane
+      POSTGRES_USER: ctrlpane_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctrlpane_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ctrlpane_app -d ctrlpane"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-36379}:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-ctrlpane_dev}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ctrlpane_dev}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  nats:
+    image: nats:2-alpine
+    ports:
+      - "127.0.0.1:${NATS_PORT:-34222}:4222"
+      - "127.0.0.1:${NATS_MGMT_PORT:-38222}:8222"
+    command: --jetstream --store_dir /data -m 8222
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    ports:
+      - "127.0.0.1:${CENTRIFUGO_PORT:-38000}:8000"
+    environment:
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:-ctrlpane_dev_api_key}
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_HMAC_SECRET:-ctrlpane_dev_hmac_secret}
+      CENTRIFUGO_ALLOWED_ORIGINS: "http://localhost:${WEB_PORT:-33000}"
+      CENTRIFUGO_API_INSECURE: "true"
+    command: centrifugo --health
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  natsdata:

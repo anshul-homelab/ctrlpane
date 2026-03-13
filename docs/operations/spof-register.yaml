@@ -1,0 +1,166 @@
+# SPOF Acceptance Register -- ctrlpane
+# Review cadence: Quarterly (next: 2026-06-12)
+# Owner: Anshul
+# Last reviewed: 2026-03-12
+#
+# Source: ADR-007 Decision 4, Deployment Architecture
+# Related: docs/decisions/ADR-007-resilience-and-deployment.md
+#          docs/architecture/deployment-architecture.md
+
+entries:
+  - name: "Mac Studio (M4 Max, 128GB)"
+    category: compute
+    description: >
+      Single development machine and AI inference host. Hardware failure
+      stops all development activity and removes AI inference for production.
+    blast_radius: >
+      Development halted. AI-powered features in production degrade
+      (inference calls to Mac Studio over LAN fail). Production CRUD
+      operations on Kali are unaffected.
+    accepted_downtime: hours
+    mitigation:
+      - "Production runs independently on Kali -- no dev dependency"
+      - "AI features degrade gracefully (non-AI paths still functional)"
+      - "Git repo mirrored to GitHub and Google Drive (daily bundles)"
+      - "Dev environment reproducible from repo + .env backup"
+    recovery_procedure: >
+      1. Production continues on Kali without intervention.
+      2. Provision replacement Mac or use Kali as temporary dev host.
+      3. Clone repo from GitHub, restore .env from Google Drive backup.
+      4. Estimated RTO: 4-8 hours (hardware) + 1 hour (environment setup).
+    escalation_path: "Anshul -- hardware procurement + environment rebuild"
+    review_cadence: quarterly
+    status: accepted
+
+  - name: "Kali Mini PC (i7-12700H, 64GB)"
+    category: compute
+    description: >
+      Single production host running all production services, CI/CD runner,
+      and backup agent. Hardware failure takes down production entirely.
+    blast_radius: >
+      Full production outage. All external users and agents lose access.
+      CI/CD pipeline stops. Backups stop until host recovers.
+      Development on Mac Studio is unaffected.
+    accepted_downtime: hours
+    mitigation:
+      - "systemd auto-restart on service crash (RestartSec=5s)"
+      - "Cloudflare tunnel auto-reconnects on host reboot"
+      - "Daily backups to Google Drive (pg_dump, Redis RDB, NATS snapshots)"
+      - "Continuous WAL archiving to Google Drive via rclone"
+      - "Mac Studio can serve as emergency production fallback"
+      - "Monthly restore drill validates backup integrity"
+    recovery_procedure: >
+      1. If process crash: systemd restarts automatically (<10s).
+      2. If host reboot: systemd + Docker start all services at boot (<5 min).
+      3. If disk failure: provision new drive, restore from Google Drive backups.
+      4. If total hardware failure: provision new Linux host, restore Postgres
+         from backup, rebuild Redis from Postgres state, NATS replays from outbox.
+      5. Estimated RTO: 4-8 hours (hardware) + 1-2 hours (restore).
+      6. Estimated RPO: <15 minutes (WAL archiving), 24 hours (full dump).
+    escalation_path: "Anshul -- hardware procurement + restore from backups"
+    review_cadence: quarterly
+    status: accepted
+
+  - name: "Postgres (Single Instance)"
+    category: storage
+    description: >
+      One Postgres 17 instance on Kali serves all 8 domains. No streaming
+      replica. Instance failure loses all database read/write access.
+    blast_radius: >
+      All API read/write operations fail. API returns 503. Cached reads
+      from Redis may serve partial data. Event delivery paused (outbox
+      in Postgres). Effectively a full production outage.
+    accepted_downtime: minutes
+    mitigation:
+      - "Docker restart policy (unless-stopped) auto-recovers crashed container"
+      - "Connection pool segmentation limits per-domain blast radius (ADR-007)"
+      - "Continuous WAL archiving to Google Drive via rclone"
+      - "Daily pg_dump full backup to Google Drive"
+      - "Monthly restore drill required by deployment architecture"
+      - "Graceful degradation: Redis serves cached reads where possible"
+    recovery_procedure: >
+      1. Container crash: Docker restarts automatically (<30s).
+      2. Data corruption: point-in-time recovery from WAL archive.
+      3. Full disk: alert at 80% threshold; extend volume or purge old partitions.
+      4. Estimated RPO: <15 minutes (WAL), 24 hours (full dump).
+    escalation_path: "Anshul -- restore from WAL or pg_dump backup"
+    review_cadence: quarterly
+    status: accepted
+
+  - name: "Google Drive Backups (Single Destination)"
+    category: storage
+    description: >
+      All backups (pg_dump, WAL archives, Redis RDB, NATS snapshots, secrets,
+      git bundles) sync to a single Google Drive account via rclone. Google
+      Drive outage or account suspension loses the only off-host backup.
+    blast_radius: >
+      No immediate production impact. Backup pipeline stalls silently.
+      If Kali fails while Google Drive is unavailable, data loss up to
+      the last successful backup. RPO guarantee voided.
+    accepted_downtime: hours
+    mitigation:
+      - "Local backup retention on Kali (last 10 pg_dumps, 7 days snapshots)"
+      - "rclone crypt encrypts secrets at rest in Google Drive"
+      - "Git repo independently mirrored to GitHub"
+      - "rclone sync failures trigger Telegram alert"
+      - "Monthly restore drill validates backup availability"
+    recovery_procedure: >
+      1. rclone sync failure: check Google Drive quota and auth token.
+      2. Account suspension: contact Google support; local backups cover gap.
+      3. If Kali + Google Drive both fail: restore git from GitHub, data loss
+         limited to local backup retention window.
+    escalation_path: "Anshul -- Google account recovery + verify local backups"
+    review_cadence: quarterly
+    status: accepted
+
+  - name: "GitHub (Source Code + CI/CD Host)"
+    category: external
+    description: >
+      GitHub hosts the source repository, CI/CD via GitHub Actions
+      (self-hosted runner on Kali), and issue tracking. GitHub outage
+      blocks deployments and collaboration.
+    blast_radius: >
+      No production impact (running services are unaffected). New deployments
+      blocked. CI/CD pipeline unavailable. Pull requests and code review
+      halted. Self-hosted runner cannot receive jobs.
+    accepted_downtime: hours
+    mitigation:
+      - "Full git repo exists locally on Mac Studio and Kali"
+      - "Daily git bundles backed up to Google Drive"
+      - "Manual deployment possible via SSH to Kali (bypass CI/CD)"
+      - "Pre-commit hooks enforce quality gates independent of CI"
+    recovery_procedure: >
+      1. GitHub outage: wait for resolution. Production is unaffected.
+      2. Emergency deploy needed during outage: SSH to Kali, git pull from
+         Mac Studio over LAN, run deploy script manually.
+      3. Repo corruption on GitHub: push from local clone or restore from
+         Google Drive git bundle.
+    escalation_path: "Anshul -- manual deploy via SSH if deployment is urgent"
+    review_cadence: quarterly
+    status: accepted
+
+  - name: "Cloudflare (DNS + Tunnel + Health Checks)"
+    category: network
+    description: >
+      Cloudflare provides DNS, TLS termination, tunnel connectivity,
+      DDoS protection, and external health checks. Cloudflare outage
+      severs all external access to production.
+    blast_radius: >
+      External access lost for all users and agents. Internal/local access
+      on Kali LAN unaffected. Health check alerting from Cloudflare stops
+      (GitHub Actions cron provides secondary monitoring).
+    accepted_downtime: hours
+    mitigation:
+      - "Local network access remains functional (dev, local agents)"
+      - "Cloudflare status page monitoring with Telegram alert"
+      - "Tunnel auto-reconnects after transient failures"
+      - "GitHub Actions cron health check (5 min interval) provides independent monitoring"
+      - "DNS TTL set low (5 min) for faster failover if DNS provider changes"
+    recovery_procedure: >
+      1. Tunnel process crash: systemd restarts cloudflared automatically.
+      2. Cloudflare edge outage: wait for resolution (no local mitigation).
+      3. Prolonged outage (>4h): evaluate Tailscale or WireGuard as
+         emergency backup tunnel.
+    escalation_path: "Anshul -- monitor Cloudflare status; switch to backup tunnel if prolonged"
+    review_cadence: quarterly
+    status: accepted

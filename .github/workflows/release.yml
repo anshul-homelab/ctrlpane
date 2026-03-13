@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - name: Create Release PR or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: echo "skip-publish"
+          version: bun run version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if deploy needed
+        id: check
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          if [[ "$MSG" == "Version Packages"* ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build
+        if: steps.check.outputs.is_release == 'true'
+        run: bun run build
+
+      - name: Backup database
+        if: steps.check.outputs.is_release == 'true'
+        run: |
+          VERSION=$(node -p "require('./apps/api/package.json').version")
+          pg_dump -h localhost -p 35432 -U ctrlpane_app ctrlpane | gzip > /opt/ctrlpane/backups/api@v${VERSION}-pre-deploy.sql.gz
+
+      - name: Run migrations
+        if: steps.check.outputs.is_release == 'true'
+        run: bun run --cwd apps/api db:migrate
+
+      - name: Deploy API
+        if: steps.check.outputs.is_release == 'true'
+        run: |
+          VERSION=$(node -p "require('./apps/api/package.json').version")
+          mkdir -p /opt/ctrlpane/api/releases/v${VERSION}
+          cp -r apps/api/dist/* /opt/ctrlpane/api/releases/v${VERSION}/
+          ln -sfn releases/v${VERSION} /opt/ctrlpane/api/current
+          sudo systemctl restart ctrlpane-api
+
+      - name: Deploy Web
+        if: steps.check.outputs.is_release == 'true'
+        run: |
+          VERSION=$(node -p "require('./apps/web/package.json').version")
+          mkdir -p /opt/ctrlpane/web/releases/v${VERSION}
+          cp -r apps/web/dist/* /opt/ctrlpane/web/releases/v${VERSION}/
+          ln -sfn releases/v${VERSION} /opt/ctrlpane/web/current
+          sudo systemctl restart ctrlpane-web
+
+      - name: Health check
+        if: steps.check.outputs.is_release == 'true'
+        run: |
+          sleep 3
+          curl -f http://localhost:33001/health/ready || exit 1
+          curl -f http://localhost:33000/ || exit 1

@@ -1,0 +1,56 @@
+name: Rollback Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App to rollback'
+        required: true
+        type: choice
+        options: [api, web]
+      version:
+        description: 'Version to rollback to (e.g., v0.1.0)'
+        required: true
+        type: string
+      restore_database:
+        description: 'Restore database from pre-deploy backup?'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  rollback:
+    runs-on: self-hosted
+    steps:
+      - name: Verify release exists
+        run: |
+          if [ ! -d "/opt/ctrlpane/${{ inputs.app }}/releases/${{ inputs.version }}" ]; then
+            echo "Release ${{ inputs.version }} not found for ${{ inputs.app }}"
+            exit 1
+          fi
+
+      - name: Restore database
+        if: inputs.restore_database
+        run: |
+          BACKUP="/opt/ctrlpane/backups/${{ inputs.app }}@${{ inputs.version }}-pre-deploy.sql.gz"
+          if [ -f "$BACKUP" ]; then
+            gunzip -c "$BACKUP" | psql -h localhost -p 35432 -U ctrlpane_app ctrlpane
+          else
+            echo "Backup not found: $BACKUP"
+            exit 1
+          fi
+
+      - name: Rollback
+        run: |
+          sudo systemctl stop ctrlpane-${{ inputs.app }}
+          ln -sfn releases/${{ inputs.version }} /opt/ctrlpane/${{ inputs.app }}/current
+          sudo systemctl start ctrlpane-${{ inputs.app }}
+
+      - name: Health check
+        run: |
+          sleep 3
+          if [ "${{ inputs.app }}" = "api" ]; then
+            curl -f http://localhost:33001/health/ready || exit 1
+          else
+            curl -f http://localhost:33000/ || exit 1
+          fi

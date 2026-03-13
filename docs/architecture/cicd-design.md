@@ -30,68 +30,27 @@ Additionally, there is no release pipeline -- no versioning, no changelogs, no r
 
 ## 2. Hardware & Network Topology
 
-ctrlpane shares the same home lab infrastructure as LifeOS, with complete data isolation.
+ctrlpane uses a two-machine home lab topology: Mac Studio (dev + AI inference) and Kali Mini PC (production + CI/CD + backups). See [Deployment Architecture](./deployment-architecture.md) for the complete topology diagram, port convention, machine utilization, and coexistence with LifeOS.
 
-| Machine | Specs | Role | Network |
-|---------|-------|------|---------|
-| **Mac Studio** | M4 Max, 128GB RAM, 1.8TB SSD | Dev environment + AI inference + observability | LAN, localhost only (not exposed) |
-| **Kali Mini PC** | i7-12700H, 64GB RAM, 1TB NVMe, Linux | Production + CI/CD runner + backups | LAN, SSH (`ssh kali`), Cloudflare tunnel for `ctrlpane.com` |
-| **Google Drive** | 2TB (Google Pro account) | Off-site backup storage | Internet |
-
-### Machine Utilization
-
-| Machine | Before this spec | After this spec |
-|---------|-----------------|-----------------|
-| **Mac Studio** | Dev servers + AI + observability + "production" | Dev servers + AI + observability only |
-| **Kali** | LifeOS production + runners | + ctrlpane production + CI runner + backups (~8-10% total utilization) |
-| **Google Drive** | LifeOS backups (~5GB) | + ctrlpane backups (~3-5GB additional) |
-
-### Coexistence with LifeOS on Kali
-
-Both projects run on Kali with complete isolation:
-
-| Resource | ctrlpane (prefix 3) | LifeOS (prefix 2) |
-|----------|--------------------|--------------------|
-| Web | :33000 | :23000 |
-| API | :33001 | :23001 |
-| Postgres | :35432 | :25432 |
-| Redis | :36379 | :26379 |
-| NATS | :34222 | :24222 |
-| Centrifugo | :38000 | :28000 |
-| Preview slots | :34000-:36001 | :24000-:26001 |
-| Turbo cache | :39080 | :29080 |
-| Filesystem | `/opt/ctrlpane/` | `/opt/lifeos/` |
-| systemd | `ctrlpane-*.service` | `lifeos-*.service` |
-| Cloudflare | `ctrlpane.com` | `sdfsdf.in` |
-| GitHub runner | Shared, label `ctrlpane` | Shared, label `lifeos` |
-| Backups | `/ctrlpane-backups/` | `/lifeos-backups/` |
-
-### Key Design Decisions
-
-1. **Same port numbers on both machines.** Production and dev use identical ports (prefix `3`). No conflicts because they run on different machines.
-
-2. **AI inference stays on Mac Studio.** Kali's production API calls Mac Studio over LAN for AI features. ~1ms LAN latency is negligible when inference takes 2-10 seconds.
-
-3. **Observability is shared but collectors are local.** Each machine runs its own Alloy collector. Both forward telemetry to Mac Studio's Grafana stack. One dashboard with `env=prod` / `env=dev` and `app=ctrlpane` labels.
-
-4. **Cloudflare tunnel on Kali.** `ctrlpane.com` routes to Kali (production). Dev servers are never exposed externally.
-
-5. **Complete data isolation.** Kali runs its own Postgres/Redis/NATS for ctrlpane. Dev operations (bad migrations, `docker compose down`, crashes) on Mac Studio cannot affect production.
+**Key points for CI/CD context:**
+- CI runs on Kali's self-hosted GitHub Actions runner
+- Production deploys target Kali via systemd
+- Dev servers on Mac Studio are never exposed externally
+- Cloudflare tunnel on Kali serves `ctrlpane.com` and `api.ctrlpane.com`
 
 ---
 
 ## 3. Domain Routing
 
-| Domain | Points to | Machine | Purpose |
-|--------|-----------|---------|---------|
-| `ctrlpane.com` | Kali :33000 | Kali | Production web app |
-| `api.ctrlpane.com` | Kali :33001 | Kali | Production API |
-| `preview-1.ctrlpane.com` | Kali :34000 | Kali | PR preview slot 1 |
-| `preview-2.ctrlpane.com` | Kali :35000 | Kali | PR preview slot 2 |
-| `preview-3.ctrlpane.com` | Kali :36000 | Kali | PR preview slot 3 |
+See [Deployment Architecture — Domain Routing](./deployment-architecture.md#5-domain-routing) for the complete routing table.
 
-- Dev servers are **not exposed** -- accessed via `localhost` on Mac Studio only.
-- Kali tunnel uses hostname-based ingress rules.
+Preview environments add additional routes:
+
+| Domain | Points to | Purpose |
+|--------|-----------|---------|
+| `preview-1.ctrlpane.com` | Kali :34000 | PR preview slot 1 |
+| `preview-2.ctrlpane.com` | Kali :35000 | PR preview slot 2 |
+| `preview-3.ctrlpane.com` | Kali :36000 | PR preview slot 3 |
 
 ---
 
@@ -655,28 +614,11 @@ Production health checks           -- final safety net, auto-rollback on failure
 
 ## 11. Backup Strategy
 
-### Backup Schedule
+See [Deployment Architecture — Backup and Recovery](./deployment-architecture.md#9-backup-and-recovery) for the complete backup schedule, retention policies, and recovery targets.
 
-| Backup type | Source | Destination | Frequency | Retention | Tool |
-|-------------|--------|-------------|-----------|-----------|------|
-| Database dumps | Kali prod Postgres | Google Drive + local | Daily | 30 days | `pg_dump` + `rclone` |
-| WAL archives | Kali prod Postgres | Google Drive | Continuous | 7 days | `archive_command` + `rclone` |
-| Redis snapshots | Kali prod Redis | Google Drive + local | Daily | 7 days | RDB snapshot + `rclone` |
-| NATS snapshots | Kali prod NATS | Google Drive + local | Daily | 7 days | File store snapshot + `rclone` |
-| Secrets/env | Kali + Mac Studio | Google Drive (encrypted) | On change | Versioned | `rclone` with crypt remote |
-| Git bundle | Full repo | Google Drive | Daily | 5 versions | `git bundle` + `rclone` |
-| Production builds | Kali releases/ | Google Drive | Per deploy | Last 20 | `rclone` |
-
-### Pre-Deploy Snapshots
+### Pre-Deploy Snapshots (CI/CD-Specific)
 
 Every production deploy creates a `pg_dump` snapshot **before** running migrations. Named `{app}@{version}-pre-deploy.sql.gz`. Stored locally (last 10) and synced to Google Drive. This is the primary rollback mechanism for database changes.
-
-### rclone Configuration
-
-- Google Drive backend with OAuth2 authentication
-- Encryption-at-rest for secrets backup (rclone crypt remote)
-- Bandwidth limit during business hours to avoid saturating the upload link
-- Scheduled via systemd timers on Kali
 
 ### Estimated Storage
 
@@ -907,14 +849,9 @@ The `needs-docs` label blocks auto-merge but does NOT block manual merge -- it i
 
 ## 16. External Monitoring
 
-Monitoring that works even when the entire home lab is powered off:
+See [Deployment Architecture — Monitoring and Health](./deployment-architecture.md#10-monitoring-and-health) for health check endpoints and external monitoring configuration.
 
-| Monitor | Runs on | Checks | Alert channel |
-|---------|---------|--------|---------------|
-| **Cloudflare Health Check** | Cloudflare edge | HTTP GET `ctrlpane.com/health` every 60s | Email + webhook -> Telegram |
-| **GitHub Actions cron** | GitHub infrastructure (`runs-on: ubuntu-latest`, NOT self-hosted) | `curl api.ctrlpane.com/health/ready` every 5 min | Telegram via bot API |
-
-Both are free, run outside the home lab power domain, and continue alerting even during a total power outage.
+Both Cloudflare Health Checks and GitHub Actions cron monitoring are free, run outside the home lab power domain, and continue alerting even during a total power outage.
 
 ---
 

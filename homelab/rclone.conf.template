@@ -1,0 +1,12 @@
+[gdrive]
+type = drive
+client_id = <your-client-id>
+client_secret = <your-client-secret>
+scope = drive
+root_folder_id = <folder-id>
+token = <token-json>
+
+[gdrive-crypt]
+type = crypt
+remote = gdrive:ctrlpane-backups/secrets
+password = <encrypted-password>

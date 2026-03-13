@@ -100,13 +100,27 @@ All ctrlpane services use port prefix `3`:
 
 | Service | Port |
 |---------|------|
-| API | 3000 |
-| Web | 3001 |
+| API | 33001 |
+| Web | 33000 |
 | PostgreSQL | 35432 |
 | Redis | 36379 |
 | NATS | 34222 |
 | NATS Management | 38222 |
 | Centrifugo | 38000 |
+
+## Worktree Review Protocol
+
+When your work is ready for review, read `.worktree-info` from the worktree root and output the URLs at the bottom of your message:
+
+    ---
+    **Ready for review**
+    - Web: http://localhost:${WEB_PORT}
+    - API: http://localhost:${API_PORT}
+
+    Ports are in `.env` at the worktree root.
+    ---
+
+If `.worktree-info` does not exist, read `WEB_PORT` and `API_PORT` from `.env` instead. If neither file exists (main worktree without hooks), use the defaults: Web=33000, API=33001.
 
 ## Multi-Agent Safety Rules
 

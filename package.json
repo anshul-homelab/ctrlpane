@@ -1,0 +1,35 @@
+{
+  "name": "ctrlpane",
+  "private": true,
+  "packageManager": "bun@1.3.10",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "process-compose up",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "check": "turbo run check",
+    "check:fix": "turbo run check:fix",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "turbo run test:integration",
+    "test:arch": "vitest run --config vitest.arch.config.ts",
+    "changeset": "changeset",
+    "version": "changeset version"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@changesets/cli": "^2.27.0",
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^11.3.1",
+    "@vitest/coverage-v8": "4.0.18",
+    "lefthook": "^1.6.0",
+    "secretlint": "^11.3.1",
+    "ts-morph": "^27.0.2",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}

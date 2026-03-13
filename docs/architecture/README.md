@@ -77,8 +77,8 @@ Internet
   -> Cloudflare Tunnel
     -> ctrlpane.com
       -> Caddy (reverse proxy, TLS termination)
-        -> ctrlpane-api  (Bun, port 3000)
-        -> ctrlpane-web  (Bun, port 3001)
+        -> ctrlpane-api  (Bun, port 33000)
+        -> ctrlpane-web  (Bun, port 33001)
         -> Centrifugo    (port 38000)
       -> PostgreSQL      (port 35432)
       -> Redis           (port 36379)
@@ -91,8 +91,8 @@ All ctrlpane services use port prefix `3`:
 
 | Service | Port | Standard Port |
 |---------|------|---------------|
-| API | 3000 | 3000 |
-| Web | 3001 | 3001 |
+| API | 33000 | 3000 |
+| Web | 33001 | 3001 |
 | PostgreSQL | 35432 | 5432 |
 | Redis | 36379 | 6379 |
 | NATS | 34222 | 4222 |

@@ -1,6 +1,6 @@
 # ADR-007: Resilience Patterns and Deployment Strategy
 
-- Status: proposed
+- Status: accepted (Decisions 1-4); Decision 5 superseded by ADR-008
 - Date: 2026-03-12
 - Decision-Makers: Anshul
 - Consulted: AWS Builders Library (backoff/jitter), NATS JetStream documentation, Release It! (Nygard), Effect.ts scheduling documentation, macOS launchd documentation
@@ -274,31 +274,31 @@ Maintain a machine-readable SPOF register as a YAML file at `docs/operations/spo
 
 entries:
   - id: SPOF-001
-    component: "Mac Studio (M4 Max)"
+    component: "Kali Mini PC (i7-12700H)"
     category: hardware
     description: >
-      Single physical host runs all services. Hardware failure
-      (disk, RAM, power supply, logic board) takes down entire system.
-    blast_radius: "Total outage of all ctrlpane services"
-    probability: low          # enterprise-grade hardware, UPS-protected
-    impact: critical          # all users lose access
+      Single Linux server runs all production services. Hardware failure
+      takes down production but development continues on Mac Studio.
+    blast_radius: "Production outage; dev environment on Mac Studio unaffected"
+    probability: low          # dedicated server hardware
+    impact: critical          # all production users lose access
     risk_score: medium        # low probability * critical impact
     accepted: true
     accepted_by: Anshul
     accepted_date: 2026-03-12
     compensating_controls:
-      - "Automated Postgres backups to external NAS (hourly WAL archiving, daily full)"
-      - "Redis RDB snapshots to external NAS (6-hour interval)"
-      - "NATS JetStream file store on separate SSD volume"
+      - "Automated Postgres backups to Google Drive (daily pg_dump + continuous WAL archiving)"
+      - "Redis RDB snapshots to Google Drive (daily)"
+      - "NATS JetStream file store snapshots to Google Drive (daily)"
+      - "systemd auto-restart on service crash"
+      - "Dev environment on Mac Studio can serve as emergency fallback"
       - "Cloudflare tunnel auto-reconnects on host reboot"
-      - "UPS provides 30-minute battery runtime for graceful shutdown"
-      - "macOS Time Machine to external drive (system-level backup)"
     recovery_procedure: |
-      1. If disk failure: restore from Time Machine to replacement drive
-      2. If total hardware failure: provision new Mac, restore Postgres from backup,
-         rebuild Redis from Postgres state, NATS replays from outbox
+      1. If disk failure: rebuild from Google Drive backups on replacement drive
+      2. If total hardware failure: provision new Linux host, restore Postgres from
+         Google Drive backup, rebuild Redis from Postgres state, NATS replays from outbox
       3. Estimated RTO: 4-8 hours (hardware procurement) + 1-2 hours (restore)
-      4. Estimated RPO: 1 hour (Postgres WAL), 6 hours (Redis)
+      4. Estimated RPO: 24 hours (daily backups), lower for Postgres WAL
     upgrade_trigger: >
       When monthly active users exceed 50 OR revenue exceeds $500/mo,
       evaluate migration to a secondary host with Postgres streaming replication.
@@ -307,7 +307,7 @@ entries:
     component: "Cloudflare Tunnel"
     category: network
     description: >
-      Single Cloudflare tunnel provides all external connectivity.
+      Single Cloudflare tunnel on Kali provides all external connectivity.
       Cloudflare outage or tunnel misconfiguration blocks all access.
     blast_radius: "External access lost; internal/local access unaffected"
     probability: very_low     # Cloudflare's global SLA
@@ -322,7 +322,7 @@ entries:
       - "Tunnel auto-reconnects after transient failures"
     recovery_procedure: |
       1. Check Cloudflare status page
-      2. If tunnel process crashed: launchd auto-restarts it
+      2. If tunnel process crashed: systemd auto-restarts it
       3. If Cloudflare outage: wait for resolution (no local mitigation)
     upgrade_trigger: >
       If Cloudflare experiences >2 outages per quarter affecting ctrlpane,
@@ -343,9 +343,9 @@ entries:
     accepted_date: 2026-03-12
     compensating_controls:
       - "Connection pool segmentation limits blast radius per domain (Decision 3)"
-      - "Hourly WAL archiving to external NAS"
-      - "Daily pg_dump full backup to external NAS"
-      - "Weekly backup restore verification (automated script)"
+      - "Continuous WAL archiving to Google Drive via rclone"
+      - "Daily pg_dump full backup to Google Drive via rclone"
+      - "Monthly restore drill (required by deployment architecture)"
       - "Graceful degradation: API returns cached data from Redis for reads where possible"
     recovery_procedure: |
       1. Postgres process crash: launchd/Docker restarts automatically
@@ -369,15 +369,15 @@ entries:
     accepted_by: Anshul
     accepted_date: 2026-03-12
     compensating_controls:
-      - "launchd KeepAlive restarts process within 2-5 seconds"
+      - "systemd Restart=on-failure restarts process within 5-10 seconds"
       - "Graceful shutdown handler drains in-flight requests on SIGTERM"
       - "Effect.ts structured concurrency prevents unhandled promise rejections"
       - "Memory limit alert at 80% of allocated RSS"
-      - "Health check endpoint polled every 10s by Caddy (returns 502 during restart)"
+      - "Health check endpoint polled every 60s by Cloudflare and every 5min by GitHub Actions cron"
     recovery_procedure: |
-      1. Process crash: launchd restarts automatically (< 5s)
-      2. OOM: launchd restarts; investigate memory leak via heap snapshot
-      3. Stuck process: health check fails -> Caddy returns 502 -> manual restart via launchctl
+      1. Process crash: systemd restarts automatically (RestartSec=5s)
+      2. OOM: systemd restarts; investigate memory leak via heap snapshot
+      3. Stuck process: health check fails -> Cloudflare alerts -> manual restart via systemctl
     upgrade_trigger: >
       When p99 latency during restart exceeds user tolerance (>5s)
       OR when request volume requires zero-downtime deploys,
@@ -399,7 +399,7 @@ entries:
     compensating_controls:
       - "Fail-open rate limiting: if Redis down, use in-memory approximate counters"
       - "Sessions validated against Postgres (Redis is cache, not source of truth)"
-      - "RDB snapshots every 6 hours to external NAS"
+      - "RDB snapshots daily to Google Drive via rclone"
       - "Docker restart policy: always"
     recovery_procedure: |
       1. Redis process crash: Docker restarts automatically
@@ -459,6 +459,8 @@ entries:
 
 ## Decision 5: Deployment and Rollback Strategy
 
+> **Superseded:** This decision has been replaced by [ADR-008 CI/CD Deployment](./ADR-008-cicd-deployment.md), which moves production to Kali Linux with systemd, GitHub Actions CI/CD, and Changesets versioning. The content below is retained for historical context. ADR-007 Decisions 1-4 remain active and unchanged.
+
 ### Decision
 
 Use **launchd** as the production process manager for the Bun API on macOS, with a **Git-tag-based release** workflow and a **three-phase deployment** process that separates database migration from application deployment. Rollback is achieved by deploying a previous Git tag.
@@ -489,7 +491,7 @@ The Bun API process runs natively (not containerized) on macOS. `launchd` is the
     <key>NODE_ENV</key>
     <string>production</string>
     <key>PORT</key>
-    <string>3000</string>
+    <string>33001</string>
   </dict>
   <key>KeepAlive</key>
   <true/>
@@ -640,6 +642,7 @@ esac
 
 ## More Information
 
+- [ADR-008 CI/CD Deployment](./ADR-008-cicd-deployment.md) — supersedes Decision 5
 - [ADR-001 Tech Stack](./ADR-001-tech-stack.md) — infrastructure choices and port conventions
 - [ADR-006 Event Architecture](./ADR-006-event-architecture.md) — outbox pattern, NATS JetStream configuration
 - [Production Governance](../architecture/production-governance.md) — Bronze/Silver/Gold tiers

@@ -2,10 +2,11 @@
 
 **Date:** 2026-03-12 | **Status:** Proposed
 **Author:** Claude Code + Anshul
-**Context:** CtrlPane is a multi-tenant, AI-first project management platform at 0% implementation. These 21 decisions address gaps identified by auditing a 298-item superset production checklist against existing documentation. Each item is classified as irreversible (schema, API contract, or data model impact) and must be decided before any code is written.
+**Context:** ctrlpane is a multi-tenant, AI-first project management platform at 0% implementation. These 21 decisions address gaps identified by auditing a 298-item superset production checklist against existing documentation. Each item is classified as irreversible (schema, API contract, or data model impact) and must be decided before any code is written.
 
 **Launch Strategy:** Progressive rollout — private alpha → employee beta → public SaaS.
 **Key Constraint:** No irreversible architectural decisions deferred. The design must be scalable and extensible to future requirements without costly rework.
+**ADR-008 Note:** ADR-008 has been assigned to CI/CD Deployment Architecture ([ADR-008](../../decisions/ADR-008-cicd-deployment.md)). The ADRs proposed in this document start from ADR-009.
 
 ---
 
@@ -13,27 +14,27 @@
 
 | # | Decision | Choice | ADR |
 |---|----------|--------|-----|
-| 1 | API Versioning | URL path `/api/v1/` | ADR-008 |
-| 2 | Backward Compatibility | Additive-only + Sunset header, 90/180-day windows | ADR-009 |
-| 3 | Pagination & Filtering | Cursor-based, opaque base64, max 100 per page | ADR-010 |
-| 4 | Event Schema Versioning | CloudEvents-inspired envelope, version in type string | ADR-011 |
-| 5 | Idempotency Keys | IETF `Idempotency-Key` header, tenant-scoped Redis, 24h TTL | ADR-012 |
-| 6 | CSRF Mitigation | SameSite=Strict sufficient + Origin header check | ADR-013 |
-| 7 | SSRF Prevention | SafeHttpClient with allowlist + private IP blocking + DNS pinning | ADR-013 |
-| 8 | GDPR Erasure Cascade | Event-driven with ErasureCoordinator, nullify shared resources | ADR-014 |
-| 9 | Data Consistency Model | Three-tier: strong (intra-domain), causal (UI), eventual (cross-domain) | ADR-015 |
+| 1 | API Versioning | URL path `/api/v1/` | ADR-009 |
+| 2 | Backward Compatibility | Additive-only + Sunset header, 90/180-day windows | ADR-010 |
+| 3 | Pagination & Filtering | Cursor-based, opaque base64, max 100 per page | ADR-011 |
+| 4 | Event Schema Versioning | CloudEvents-inspired envelope, version in type string | ADR-012 |
+| 5 | Idempotency Keys | IETF `Idempotency-Key` header, tenant-scoped Redis, 24h TTL | ADR-013 |
+| 6 | CSRF Mitigation | SameSite=Strict sufficient + Origin header check | ADR-014 |
+| 7 | SSRF Prevention | SafeHttpClient with allowlist + private IP blocking + DNS pinning | ADR-014 |
+| 8 | GDPR Erasure Cascade | Event-driven with ErasureCoordinator, nullify shared resources | ADR-015 |
+| 9 | Data Consistency Model | Three-tier: strong (intra-domain), causal (UI), eventual (cross-domain) | ADR-016 |
 | 10 | Retry / Backoff / Jitter | Three policy tiers (fast/standard/slow), full jitter | ADR-007 |
 | 11 | Backpressure | Pull-based NATS consumers, Semaphore-limited outbox poller | ADR-007 |
 | 12 | Bulkhead / Failure Isolation | Effect Semaphore pools + Postgres pool segmentation + circuit breakers | ADR-007 |
-| 13 | SPOF Acceptance Register | YAML-based register at docs/operations/spof-register.yaml | ADR-016 |
-| 14 | Deployment & Rollback | launchd + git tags + 3-phase deploy script | ADR-016 |
-| 15 | OpenTelemetry Stack | @effect/opentelemetry + OTLP/HTTP + SigNoz | ADR-017 |
-| 16 | Trace Propagation | W3C Traceparent across HTTP, outbox, NATS, Centrifugo | ADR-017 |
-| 17 | Agent Action Risk Classification | Static 3-tier (normal/elevated/critical) per action | ADR-018 |
-| 18 | Prompt/Instructions Versioning | Immutable versioned rows + per-project overrides | ADR-018 |
-| 19 | Human Review Checkpoints | Async approval workflow, agent releases lease while pending | ADR-018 |
-| 20 | Sensitive Data Controls | 3-layer progressive (classify → redact → consent) | ADR-018 |
-| 21 | Agent Session Data Retention | Tiered: 6mo sessions, 3mo activity, 7d terminal output, file-based archive | ADR-019 |
+| 13 | SPOF Acceptance Register | YAML-based register at docs/operations/spof-register.yaml | ADR-017 |
+| 14 | Deployment & Rollback | Superseded by ADR-008 (systemd + GitHub Actions + Changesets on Kali) | ADR-017 |
+| 15 | OpenTelemetry Stack | @effect/opentelemetry + OTLP/HTTP + SigNoz | ADR-018 |
+| 16 | Trace Propagation | W3C Traceparent across HTTP, outbox, NATS, Centrifugo | ADR-018 |
+| 17 | Agent Action Risk Classification | Static 3-tier (normal/elevated/critical) per action | ADR-019 |
+| 18 | Prompt/Instructions Versioning | Immutable versioned rows + per-project overrides | ADR-019 |
+| 19 | Human Review Checkpoints | Async approval workflow, agent releases lease while pending | ADR-019 |
+| 20 | Sensitive Data Controls | 3-layer progressive (classify → redact → consent) | ADR-019 |
+| 21 | Agent Session Data Retention | Tiered: 6mo sessions, 3mo activity, 7d terminal output, file-based archive | ADR-020 |
 
 ---
 
@@ -105,7 +106,7 @@ Additive-only evolution within a major version. Breaking changes require a new m
 | No formal compatibility rules | Rejected | Leads to ad-hoc breaking changes and erodes client trust. Especially dangerous when agents depend on stable schemas. |
 | Shorter deprecation windows (30 days) | Rejected | Insufficient time for enterprise clients to update integrations. 90 days is the minimum industry standard. |
 | Longer deprecation windows (12 months) | Deferred | Appropriate for GA with paying customers. Overkill for alpha/beta where the user base is controlled. |
-| GraphQL-style deprecation directives | N/A | CtrlPane uses REST, not GraphQL. The `@deprecated` directive pattern inspired the header-based approach. |
+| GraphQL-style deprecation directives | N/A | ctrlpane uses REST, not GraphQL. The `@deprecated` directive pattern inspired the header-based approach. |
 
 ### Schema & Code Impact
 
@@ -148,7 +149,7 @@ Cursor-based pagination using opaque base64-encoded cursors that encode `(sort_f
 |--------|---------|--------|
 | Offset-based (`?page=3&per_page=25`) | Rejected | O(n) performance at depth, inconsistent during concurrent writes, requires total count query |
 | Keyset with transparent cursors | Rejected | Exposes internal sort field names and types, coupling clients to schema details |
-| GraphQL Relay-style connections | N/A | CtrlPane uses REST. The cursor concept is borrowed from Relay but adapted to REST conventions. |
+| GraphQL Relay-style connections | N/A | ctrlpane uses REST. The cursor concept is borrowed from Relay but adapted to REST conventions. |
 | Field projection (`?fields=id,title,status`) | Rejected | Inconsistent response shapes break agent parsing. The bandwidth savings are negligible for typical payloads (<5KB). |
 
 ### Schema & Code Impact
@@ -176,7 +177,7 @@ Cursor-based pagination using opaque base64-encoded cursors that encode `(sort_f
 
 ### Decision
 
-CloudEvents-inspired envelope with the following fields: `specversion` (always `"1.0"`), `id` (UUIDv4), `source` (domain name, e.g., `ctrlpane.tasks`), `type` (dot-separated with version suffix, e.g., `ctrlpane.tasks.task.completed.v1`), `dataschemaversion` (semver of the data payload schema), `tenantid` (tenant UUID), `traceid` (W3C trace ID for correlation), `data` (the domain event payload). Version is embedded in the `type` string. No external schema registry — Zod schemas in `packages/shared/src/events/` are the single source of truth. Evolution rules: adding an optional field keeps the same version; removing, renaming, or retyping a field requires a new version (e.g., `.v2`). During transitions, consumers subscribe with NATS wildcards (`ctrlpane.tasks.task.completed.>`) to receive both versions.
+CloudEvents-inspired envelope with the following fields: `specversion` (always `"1.0"`), `id` (the outbox event's prefixed ULID, e.g., `obx_01HXYZ...` — maintains consistency with the data-model convention while remaining CloudEvents-compatible), `source` (domain name, e.g., `ctrlpane.tasks`), `type` (dot-separated with version suffix, e.g., `ctrlpane.tasks.task.completed.v1`), `dataschemaversion` (semver of the data payload schema), `tenantid` (tenant UUID), `traceid` (W3C trace ID for correlation), `data` (the domain event payload). Version is embedded in the `type` string. No external schema registry — Zod schemas in `packages/shared/src/events/` are the single source of truth. Evolution rules: adding an optional field keeps the same version; removing, renaming, or retyping a field requires a new version (e.g., `.v2`). During transitions, consumers subscribe with NATS wildcards (`ctrlpane.tasks.task.completed.>`) to receive both versions.
 
 ### Rationale
 
@@ -537,6 +538,8 @@ Pull-based NATS consumers with explicit flow control. **Outbox poller**: 50-even
 
 ### Decision
 
+> **Note:** Domain groupings and circuit breaker thresholds align with existing ADR-007. Where values differ, ADR-007 is authoritative until explicitly superseded.
+
 Three isolation mechanisms. **(1) Effect Semaphore pools** per domain category: `core` (auth, tasks) = 20 permits, `agents` = 15 permits, `background` (notifications, gamification, integrations) = 10 permits. Each request acquires a permit with 10-second timeout; if unavailable, the request fails fast with 503. **(2) Postgres connection pool segmentation**: `core` = 15 connections, `agents` = 5 connections, `background` = 5 connections (total = 25, within Postgres default of 100). Each category gets its own Drizzle instance with its own connection pool. **(3) Circuit breakers** per external dependency: NATS (5 failures → open, 30s half-open), Redis (3 failures → open, 10s half-open), Centrifugo (5 failures → open, 30s half-open), each integration service (3 failures → open, 60s half-open).
 
 ### Rationale
@@ -621,6 +624,8 @@ YAML-based register at `docs/operations/spof-register.yaml`. Six documented Sing
 
 ## 14. Deployment & Rollback Strategy
 
+> **Note:** This decision has been superseded by [ADR-008 CI/CD Deployment](../../decisions/ADR-008-cicd-deployment.md) and the [CI/CD Design spec](../../architecture/cicd-design.md). Production now uses a two-machine topology (Mac Studio dev + Kali production) with systemd, GitHub Actions, and Changesets versioning. The expand/contract migration pattern described here remains valid — it is now executed by the CI/CD pipeline instead of a manual script.
+
 **Category:** Resilience
 **Reversibility:** Irreversible — the deployment model determines process management, migration strategy, and rollback capability. Switching from launchd to containers or from git-based deploys to image-based deploys requires rearchitecting the entire deployment pipeline.
 
@@ -680,7 +685,7 @@ YAML-based register at `docs/operations/spof-register.yaml`. Six documented Sing
 - **SigNoz is simpler than the Grafana stack**: Grafana requires Tempo (traces) + Prometheus (metrics) + Loki (logs) + Grafana (UI) = 4+ services. SigNoz provides all three signal types in one service backed by ClickHouse.
 - **OTLP/HTTP over gRPC**: gRPC requires protobuf compilation which is problematic in Bun's TypeScript-first workflow. OTLP/HTTP uses JSON, which is natively supported.
 - **Self-hosted preserves data sovereignty**: Telemetry data contains tenant information and operational details. Self-hosting keeps this data on-premises during alpha/beta.
-- **Port prefix convention maintains consistency**: All CtrlPane services use prefix 3 (e.g., API at 3000, Postgres at 35432). SigNoz at 39080 follows the same pattern.
+- **Port prefix convention maintains consistency**: All ctrlpane services use prefix 3 (e.g., API at 33000, Postgres at 35432). SigNoz at 39080 follows the same pattern.
 
 ### Alternatives Considered
 
@@ -873,7 +878,7 @@ Async approval via `pending_approvals` table (prefix `apr_`). Flow: agent encoun
 
 ### Schema & Code Impact
 
-- New table: `pending_approvals` (`apr_` prefix) with columns: `id`, `tenant_id`, `project_id`, `agent_session_id`, `action_type`, `action_payload` (JSONB), `risk_level`, `status` (`pending` | `approved` | `rejected` | `expired`), `requested_at`, `decided_at`, `decided_by`, `expiry_at`, `reason` (optional text)
+- New table: `pending_approvals` (`apr_` prefix) with columns: `id`, `tenant_id`, `project_id`, `agent_session_id`, `action_type`, `action_payload` (JSONB), `risk_level`, `status` (`pending` | `approved` | `rejected` | `expired`), `requested_at`, `decided_at`, `decided_by`, `expiry_at`, `reason` (optional text). Note: `requested_at` serves as `created_at` per convention — a separate `created_at` column is not needed.
 - New ID prefix: `apr_`
 - New API endpoints: `POST /api/v1/approvals/:id/approve`, `POST /api/v1/approvals/:id/reject`, `GET /api/v1/approvals?status=pending`
 - Expiry reaper: scheduled job running every 5 minutes, expiring approvals past their `expiry_at`
@@ -984,36 +989,38 @@ Tiered retention with Postgres range partitioning (monthly). **Sessions** (`agen
 
 ---
 
+All new ID prefixes (itp_, ito_, apr_, erj_, drc_, dpc_) must be registered in the ID Prefix Registry at docs/architecture/data-model.md before implementing the corresponding migration.
+
 ## New Schema Objects Summary
 
 | Object | Type | Prefix | Domain | Phase |
 |--------|------|--------|--------|-------|
 | `instruction_templates` | table | `itp_` | agents | Alpha |
 | `instruction_overrides` | table | `ito_` | agents | Alpha |
-| `pending_approvals` | table | `apr_` | auth | Alpha |
+| `pending_approvals` | table | `apr_` | agents | Alpha |
 | `erasure_jobs` | table | `erj_` | auth | Beta |
 | `data_redaction_configs` | table | `drc_` | auth | Beta |
 | `data_processing_consents` | table | `dpc_` | auth | GA |
 | `users.status` | column | — | auth | Alpha |
-| `usr_DELETED` | sentinel row | — | auth | Beta |
+| `usr_DELETED` | sentinel row | — | auth | Alpha |
 
 ## New ADRs Required
 
 | ADR | Title | Decisions Covered |
 |-----|-------|-------------------|
 | ADR-007 | Resilience and Deployment (already exists) | #10, #11, #12, #13, #14 — reference, don't recreate |
-| ADR-008 | API Versioning Strategy | #1 |
-| ADR-009 | Backward Compatibility and Deprecation Policy | #2 |
-| ADR-010 | Pagination, Filtering, and Sorting Conventions | #3 |
-| ADR-011 | Event Schema Versioning | #4 |
-| ADR-012 | Idempotency Key Design | #5 |
-| ADR-013 | CSRF and SSRF Mitigation | #6, #7 |
-| ADR-014 | GDPR Data Erasure Cascade | #8 |
-| ADR-015 | Data Consistency Model | #9 |
-| ADR-016 | Deployment, Rollback, and SPOF Register | #13, #14 (extends ADR-007) |
-| ADR-017 | Observability Stack and Trace Propagation | #15, #16 |
-| ADR-018 | AI Agent Controls (Risk, Approval, Instructions, Data) | #17, #18, #19, #20 |
-| ADR-019 | Agent Session Data Retention | #21 |
+| ADR-009 | API Versioning Strategy | #1 |
+| ADR-010 | Backward Compatibility and Deprecation Policy | #2 |
+| ADR-011 | Pagination, Filtering, and Sorting Conventions | #3 |
+| ADR-012 | Event Schema Versioning | #4 |
+| ADR-013 | Idempotency Key Design | #5 |
+| ADR-014 | CSRF and SSRF Mitigation | #6, #7 |
+| ADR-015 | GDPR Data Erasure Cascade | #8 |
+| ADR-016 | Data Consistency Model | #9 |
+| ADR-017 | Deployment, Rollback, and SPOF Register | #13, #14 (extends ADR-007) |
+| ADR-018 | Observability Stack and Trace Propagation | #15, #16 |
+| ADR-019 | AI Agent Controls (Risk, Approval, Instructions, Data) | #17, #18, #19, #20 |
+| ADR-020 | Agent Session Data Retention | #21 |
 
 ## Checklist Audit Summary
 

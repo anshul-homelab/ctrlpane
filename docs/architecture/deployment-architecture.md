@@ -308,6 +308,10 @@ No service listens on `0.0.0.0` -- all bindings are `127.0.0.1` only.
 | Git bundle | Full repo | Daily | 5 versions | Google Drive |
 | Production builds | Kali releases/ | Per deploy | Last 20 | Google Drive |
 
+### Backup Tool
+
+Backups are synced to Google Drive via **rclone** with encrypted secrets (rclone crypt remote). Scheduled via systemd timers on Kali.
+
 ### Recovery Targets
 
 | Target | Value | Method |

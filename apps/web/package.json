@@ -1,0 +1,35 @@
+{
+  "name": "@ctrlpane/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 33000",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 33000",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "check": "biome check src/",
+    "check:fix": "biome check --write src/",
+    "test": "bun test",
+    "test:unit": "bun test --grep 'unit'"
+  },
+  "dependencies": {
+    "@ctrlpane/shared": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@tanstack/react-router": "^1.95.0",
+    "@tanstack/react-query": "^5.64.0",
+    "centrifuge": "^5.2.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "vite": "^6.1.0",
+    "typescript": "^5.7.0"
+  }
+}

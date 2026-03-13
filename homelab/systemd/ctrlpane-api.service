@@ -1,0 +1,25 @@
+[Unit]
+Description=ctrlpane API server
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=anshul
+WorkingDirectory=/opt/ctrlpane/api/current
+ExecStart=/home/anshul/.bun/bin/bun run index.js
+Restart=on-failure
+RestartSec=5s
+EnvironmentFile=/opt/ctrlpane/.env
+Environment=NODE_ENV=production
+Environment=API_PORT=33001
+Environment=API_HOST=127.0.0.1
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/ctrlpane
+
+[Install]
+WantedBy=multi-user.target

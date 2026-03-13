@@ -1,0 +1,44 @@
+{
+  "name": "@ctrlpane/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun run dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "check": "biome check src/",
+    "check:fix": "biome check --write src/",
+    "test": "vitest run",
+    "test:unit": "vitest run -t 'unit'",
+    "test:integration": "vitest run -t 'integration'"
+  },
+  "dependencies": {
+    "@ctrlpane/db": "workspace:*",
+    "@ctrlpane/shared": "workspace:*",
+    "@effect/platform": "^0.72.0",
+    "@effect/schema": "^0.75.0",
+    "@hono/zod-validator": "^0.7.6",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "drizzle-orm": "^0.39.0",
+    "effect": "^3.12.0",
+    "hono": "^4.7.0",
+    "ioredis": "^5.4.0",
+    "nats": "^2.28.0",
+    "postgres": "^3.4.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "drizzle-kit": "^0.30.0",
+    "testcontainers": "^11.12.0",
+    "ts-morph": "^27.0.2",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}
