@@ -1,5 +1,5 @@
+import { useAuth, useLogout } from '@/hooks/use-auth.js';
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/hooks/use-blueprint.js';
-import { getApiKey, setApiKey } from '@/lib/api-client.js';
 import { createRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Route as rootRoute } from '../__root.js';
@@ -84,6 +84,8 @@ const styles = {
   },
   mono: { fontFamily: 'monospace', fontSize: 13 } as const,
   checkbox: { marginRight: 6 } as const,
+  label: { fontSize: 13, color: '#6b7280' } as const,
+  value: { fontSize: 14, fontWeight: 500, color: '#111827' } as const,
 };
 
 const PERMISSION_OPTIONS = [
@@ -100,80 +102,55 @@ function SettingsPage() {
   return (
     <div>
       <h1 style={styles.heading}>Settings</h1>
-      <ActiveApiKeySection />
+      <SessionSection />
       <ApiKeysSection />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Active API key — display and set
+// Session — current auth status and logout
 // ---------------------------------------------------------------------------
 
-function ActiveApiKeySection() {
-  const [currentKey, setCurrentKey] = useState(getApiKey());
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(currentKey);
-
-  const handleSave = () => {
-    setApiKey(draft.trim());
-    setCurrentKey(draft.trim());
-    setEditing(false);
-  };
+function SessionSection() {
+  const auth = useAuth();
+  const logout = useLogout();
 
   return (
     <section style={styles.section}>
-      <h2 style={styles.sectionTitle}>Active API Key</h2>
-      <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 12 }}>
-        This key is sent as the <code>X-API-Key</code> header with every request. It is stored in
-        your browser's localStorage.
-      </p>
+      <h2 style={styles.sectionTitle}>Session</h2>
 
-      {editing ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            type="text"
-            style={{ ...styles.input, flex: 1, fontFamily: 'monospace' }}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Paste your API key..."
-          />
-          <button type="button" style={styles.btnPrimary} onClick={handleSave}>
-            Save
-          </button>
+      {auth.isLoading ? (
+        <p style={styles.emptyState}>Checking session...</p>
+      ) : auth.isError ? (
+        <p style={{ color: '#ef4444', fontSize: 13 }}>Not authenticated.</p>
+      ) : auth.data ? (
+        <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            <div>
+              <span style={styles.label}>Tenant ID: </span>
+              <code style={styles.mono}>{auth.data.data.tenant_id}</code>
+            </div>
+            <div>
+              <span style={styles.label}>Auth method: </span>
+              <span style={styles.value}>{auth.data.data.auth_method}</span>
+            </div>
+          </div>
           <button
             type="button"
-            style={styles.btn}
-            onClick={() => {
-              setDraft(currentKey);
-              setEditing(false);
-            }}
+            style={styles.btnDanger}
+            onClick={() => logout.mutate()}
+            disabled={logout.isPending}
           >
-            Cancel
+            {logout.isPending ? 'Logging out...' : 'Logout'}
           </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <code style={{ ...styles.mono, color: currentKey ? '#374151' : '#9ca3af' }}>
-            {currentKey ? maskKey(currentKey) : '(not set)'}
-          </code>
-          <button type="button" style={styles.btn} onClick={() => setEditing(true)}>
-            {currentKey ? 'Change' : 'Set key'}
-          </button>
-          {currentKey && (
-            <button
-              type="button"
-              style={styles.btnDanger}
-              onClick={() => {
-                setApiKey('');
-                setCurrentKey('');
-              }}
-            >
-              Clear
-            </button>
+          {logout.isError && (
+            <p style={{ color: '#ef4444', fontSize: 13, marginTop: 8 }}>
+              Failed to log out. Please try again.
+            </p>
           )}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -385,11 +362,6 @@ function CreateApiKeyForm({ onCreated }: { onCreated: (key: string) => void }) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return key;
-  return `${key.slice(0, 8)}${'*'.repeat(Math.min(key.length - 8, 24))}`;
-}
 
 function formatRelative(iso: string): string {
   try {
