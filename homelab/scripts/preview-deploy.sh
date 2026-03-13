@@ -218,16 +218,18 @@ server.listen(PORT, "127.0.0.1", () => {
 });
 SERVE
 
-# Step 11: Start API
+# Step 11: Start API (setsid to survive runner job cleanup)
 log "Starting API on port $API_PORT..."
 cd "$PR_DIR"
-nohup bun run api/index.js > "$PR_DIR/api.log" 2>&1 &
+setsid bun run api/index.js > "$PR_DIR/api.log" 2>&1 &
 echo $! > "$PR_DIR/api.pid"
+disown
 
-# Step 12: Start Web
+# Step 12: Start Web (setsid to survive runner job cleanup)
 log "Starting Web on port $WEB_PORT..."
-WEB_PORT=$WEB_PORT API_PORT=$API_PORT nohup bun run "$PR_DIR/serve.js" > "$PR_DIR/web.log" 2>&1 &
+WEB_PORT=$WEB_PORT API_PORT=$API_PORT setsid bun run "$PR_DIR/serve.js" > "$PR_DIR/web.log" 2>&1 &
 echo $! > "$PR_DIR/web.pid"
+disown
 
 # Step 13: Health check
 log "Running health check..."
